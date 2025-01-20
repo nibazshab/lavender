@@ -1,0 +1,15 @@
+pkgname=webnote
+pkgver=
+pkgrel=1
+arch=('x86_64')
+
+source=("$pkgname" "$pkgname.service")
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  mkdir -p $pkgdir/usr/local/$pkgname
+  cp $pkgname $pkgdir/usr/local/$pkgname
+
+  mkdir -p $pkgdir/usr/lib/systemd/system
+  cp $pkgname.service $pkgdir/usr/lib/systemd/system
+}

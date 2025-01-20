@@ -1,0 +1,39 @@
+name: Releases
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: |
+          make
+          mkdir dist
+
+      - name: Package
+        run: tar -czvf dist/webnote-linux-amd64.tar.gz webnote
+
+      - name: Package Arch Linux
+        run: |
+          mv webnote .pkg
+          v=$(git describe --abbrev=0 --tags)
+          sed s/pkgver=/pkgver=$v/ -i .pkg/PKGBUILD
+          docker build --output=dist/ .pkg
+
+      - uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: dist/*

@@ -1,0 +1,9 @@
+[Unit]
+Description=webnote service
+
+[Service]
+ExecStart=/usr/local/webnote/webnote
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
