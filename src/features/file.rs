@@ -251,7 +251,7 @@ async fn download(
     Path(id): Path<String>,
     State(pool): State<SqlitePool>,
 ) -> Result<impl IntoResponse, Error> {
-    if id == "script.js" || id == "style.css" {
+    if id == "script.js" || id == "style.css" || id == "yy.js" {
         return Ok(page(Path(id)));
     }
 
