@@ -6,4 +6,4 @@ node/dist
 note.db*
 .idea
 .DS_Store
-
+.vercel
