@@ -1,8 +1,9 @@
-# webnote
+## 待办事项
 
-不想写说明了 :(
+没有钱续费服务器，开始研究一些邪门歪道的白嫖方案，可惜 LeanCloud 停止服务了
 
-这是一个记事本，也是一个粘贴箱
+- [ ] 远程数据库
+- [ ] Vercel 部署
 
 ## 说明
 
@@ -38,7 +39,7 @@ cargo clippy -- -D warnings
 cargo build --verbose --release
 ```
 
-### API
+## API
 
 - `/{id}` GET/POST
 - `/` GET/POST
