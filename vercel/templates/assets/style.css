@@ -1,0 +1,28 @@
+body {
+    margin: 0;
+    background: #e9edf0
+}
+
+textarea {
+    position: fixed;
+    inset: 15px;
+    padding: 20px;
+    border: 0;
+    outline: 0;
+    resize: none;
+    box-sizing: border-box;
+    width: calc(100% - 30px);
+    height: calc(100% - 30px);
+    font-size: 100%
+}
+
+@media(prefers-color-scheme:dark) {
+    body {
+        background: #393939
+    }
+
+    textarea {
+        background: #202020;
+        color: #d4d4d4
+    }
+}
