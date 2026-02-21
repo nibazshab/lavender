@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use tokio::time::Duration;
 use tower::ServiceBuilder;
-use vercel_runtime::Error;
 use vercel_runtime::axum::VercelLayer;
 
 #[derive(RustEmbed)]
@@ -35,10 +34,39 @@ async fn root() -> Redirect {
     Redirect::temporary(&rand_string(4))
 }
 
+pub enum Error {
+    BadRequest(String),
+    Template(askama::Error),
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> Response {
+        let (status, message) = match self {
+            Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+
+            Error::Template(e) => {
+                eprintln!("{e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal Server Error".to_string(),
+                )
+            }
+        };
+
+        (status, message).into_response()
+    }
+}
+
+impl From<askama::Error> for Error {
+    fn from(err: askama::Error) -> Self {
+        Error::Template(err)
+    }
+}
+
 async fn home(
     Path(id): Path<String>,
     TypedHeader(user_agent): TypedHeader<headers::UserAgent>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, Error> {
     let note = Note {
         id: id,
         content: "This is a note.".to_string(),
@@ -48,14 +76,14 @@ async fn home(
     let is_cli = CLI.iter().any(|agent| user_agent.as_str().contains(agent));
 
     if is_cli {
-        (
+        Ok((
             [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
             note.content,
         )
-            .into_response()
+            .into_response())
     } else {
-        let html = note.render().unwrap();
-        Html(html).into_response()
+        let html = note.render()?;
+        Ok(Html(html).into_response())
     }
 }
 
@@ -110,7 +138,7 @@ async fn fallback(uri: Uri) -> impl IntoResponse {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), vercel_runtime::Error> {
     let router = Router::new()
         .route("/", get(root))
         .route("/{id}", get(home))
