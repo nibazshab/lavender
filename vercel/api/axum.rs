@@ -8,7 +8,6 @@ use axum::{
 };
 use hyper::body::Bytes;
 use hyper::{StatusCode, header};
-use mime_guess::MimeGuess;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -33,6 +32,7 @@ async fn home() -> impl IntoResponse {
         id: "1".to_string(),
         content: "This is a note.".to_string(),
     };
+
     let html = note.render().unwrap();
     Html(html)
 }
@@ -40,7 +40,14 @@ async fn home() -> impl IntoResponse {
 async fn assets(Path(id): Path<String>) -> impl IntoResponse {
     match Assets::get(&id) {
         Some(file) => {
-            let content_type = MimeGuess::from_path(&id).first_or_octet_stream();
+            let content_type = if id.ends_with(".js") {
+                "text/javascript"
+            } else if id.ends_with(".css") {
+                "text/css"
+            } else {
+                "application/octet-stream"
+            };
+
             let cache_control = format!("public, max-age={}", 60 * 60 * 24 * 30 * 6); // 6 months
 
             let bytes = match file.data {
@@ -76,5 +83,6 @@ async fn main() -> Result<(), Error> {
     let app = ServiceBuilder::new()
         .layer(VercelLayer::new())
         .service(router);
+
     vercel_runtime::run(app).await
 }
