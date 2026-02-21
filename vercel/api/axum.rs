@@ -79,7 +79,7 @@ async fn assets(Path(file): Path<String>) -> impl IntoResponse {
 
             (
                 [
-                    (header::CONTENT_TYPE, content_type.as_ref()),
+                    (header::CONTENT_TYPE, content_type),
                     (header::CACHE_CONTROL, cache_control.as_str()),
                 ],
                 bytes,
@@ -97,7 +97,7 @@ async fn favicon() -> impl IntoResponse {
             (header::CONTENT_TYPE, "image/x-icon"),
             (
                 header::CACHE_CONTROL,
-                (60 * 60 * 24 * 30 * 12).to_string().as_str(),
+                format!("public, max-age={}", 60 * 60 * 24 * 30 * 12).as_str(),
             ),
         ],
         vec![],
