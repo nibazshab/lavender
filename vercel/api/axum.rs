@@ -49,7 +49,7 @@ where
             .await
             .map_err(|_| Error::BadRequest("Failed to read body".into()))?;
 
-        let t = serde_urlencoded::from_bytes::<NoteForm>(&bytes)
+        let con = serde_urlencoded::from_bytes::<NoteForm>(&bytes)
             .map(|f| f.t)
             .or_else(|_| {
                 std::str::from_utf8(&bytes)
@@ -58,7 +58,7 @@ where
             })
             .map_err(|_| Error::BadRequest("Invalid input".into()))?;
 
-        Ok(NoteContent(t))
+        Ok(NoteContent(con))
     }
 }
 
@@ -108,7 +108,7 @@ impl From<sqlx::Error> for Error {
 
 static POOL: OnceCell<PgPool> = OnceCell::const_new();
 
-async fn root() -> impl IntoResponse {
+async fn redirect() -> impl IntoResponse {
     Redirect::temporary(&rand_string(4))
 }
 
@@ -215,9 +215,9 @@ async fn fallback(uri: Uri) -> impl IntoResponse {
 #[tokio::main]
 async fn main() -> Result<(), vercel_runtime::Error> {
     let router = Router::new()
-        .route("/", get(root))
+        .route("/", get(redirect).post(random_data))
         .route("/{id}", get(home).post(update_data))
-        .route("/d/{id}", get(raw).post(random_data))
+        .route("/d/{id}", get(raw))
         .route("/assets/{file}", get(assets))
         .route("/favicon.ico", get(favicon))
         .fallback(fallback)
