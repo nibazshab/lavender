@@ -1,5 +1,5 @@
 use askama::Template;
-use axum::extract::{DefaultBodyLimit, Path};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request};
 use axum::http::Uri;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Router, routing::get};
@@ -29,6 +29,37 @@ struct Assets;
 struct Note {
     id: String,
     content: String,
+}
+
+#[derive(Deserialize)]
+struct NoteForm {
+    t: String,
+}
+
+struct NoteContent(String);
+
+impl<S> FromRequest<S> for NoteContent
+where
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = Bytes::from_request(req, state)
+            .await
+            .map_err(|_| Error::BadRequest("Failed to read body".into()))?;
+
+        let t = serde_urlencoded::from_bytes::<NoteForm>(&bytes)
+            .map(|f| f.t)
+            .or_else(|_| {
+                std::str::from_utf8(&bytes)
+                    .map(|s| s.to_string())
+                    .map_err(|_| ())
+            })
+            .map_err(|_| Error::BadRequest("Invalid input".into()))?;
+
+        Ok(NoteContent(t))
+    }
 }
 
 enum Error {
@@ -77,7 +108,7 @@ impl From<sqlx::Error> for Error {
 
 static POOL: OnceCell<PgPool> = OnceCell::const_new();
 
-async fn root() -> Redirect {
+async fn root() -> impl IntoResponse {
     Redirect::temporary(&rand_string(4))
 }
 
@@ -108,8 +139,7 @@ async fn raw(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
     Ok((
         [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
         note.content,
-    )
-        .into_response())
+    ))
 }
 
 async fn assets(Path(file): Path<String>) -> impl IntoResponse {
@@ -123,8 +153,6 @@ async fn assets(Path(file): Path<String>) -> impl IntoResponse {
                 "application/octet-stream"
             };
 
-            let cache_control = format!("lic, max-age={}", 60 * 60 * 24 * 30 * 6); // 6 months
-
             let bytes = match obj.data {
                 Cow::Borrowed(slice) => Bytes::from_static(slice),
                 Cow::Owned(vec) => Bytes::from(vec),
@@ -133,7 +161,7 @@ async fn assets(Path(file): Path<String>) -> impl IntoResponse {
             (
                 [
                     (header::CONTENT_TYPE, content_type),
-                    (header::CACHE_CONTROL, cache_control.as_str()),
+                    (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
                 ],
                 bytes,
             )
@@ -148,58 +176,36 @@ async fn favicon() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "image/x-icon"),
-            (
-                header::CACHE_CONTROL,
-                format!("lic, max-age={}", 60 * 60 * 24 * 30 * 12).as_str(), // 1 year
-            ),
+            (header::CACHE_CONTROL, "public, max-age=31104000"), // 60 * 60 * 24 * 30 * 12, 1 year
         ],
         vec![],
     )
-        .into_response()
 }
 
-async fn update_data(Path(id): Path<String>, bytes: Bytes) -> Result<impl IntoResponse, Error> {
-    let note = parsing(id.clone(), &bytes).await?;
+async fn update_data(
+    Path(id): Path<String>,
+    NoteContent(content): NoteContent,
+) -> Result<impl IntoResponse, Error> {
+    let note = Note { id, content };
 
     note.write().await?;
 
-    Ok(StatusCode::OK.into_response())
+    Ok(StatusCode::OK)
 }
 
 async fn random_data(
     TypedHeader(host): TypedHeader<headers::Host>,
-    bytes: Bytes,
+    NoteContent(content): NoteContent,
 ) -> Result<impl IntoResponse, Error> {
     let id = rand_string(5);
-
-    let note = parsing(id.clone(), &bytes).await?;
+    let note = Note {
+        id: id.clone(),
+        content,
+    };
 
     note.write().await?;
 
-    Ok((StatusCode::OK, format!("{host}/-/{id}")).into_response())
-}
-
-async fn parsing(id: String, bytes: &Bytes) -> Result<Note, Error> {
-    #[derive(Deserialize)]
-    struct Payload {
-        t: String,
-    }
-
-    let t = 'a: {
-        if let Ok(form) = serde_urlencoded::from_bytes::<Payload>(bytes) {
-            break 'a form;
-        }
-
-        if let Ok(t) = std::str::from_utf8(bytes) {
-            break 'a Payload { t: t.to_string() };
-        }
-
-        return Err(Error::BadRequest(
-            "Invalid, expecting text utf-8.".to_string(),
-        ));
-    };
-
-    Ok(Note { id, content: t.t })
+    Ok((StatusCode::OK, format!("{host}/-/{id}")))
 }
 
 async fn fallback(uri: Uri) -> impl IntoResponse {
@@ -223,14 +229,6 @@ async fn main() -> Result<(), vercel_runtime::Error> {
         .service(router);
 
     vercel_runtime::run(app).await
-}
-
-fn rand_string(n: usize) -> String {
-    rng()
-        .sample_iter(&Alphanumeric)
-        .take(n)
-        .map(char::from)
-        .collect()
 }
 
 impl Note {
@@ -292,4 +290,12 @@ async fn pool() -> &'static PgPool {
         pool
     })
     .await
+}
+
+fn rand_string(n: usize) -> String {
+    rng()
+        .sample_iter(&Alphanumeric)
+        .take(n)
+        .map(char::from)
+        .collect()
 }
