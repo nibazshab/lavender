@@ -1,12 +1,18 @@
 <!doctype html>
+<html>
 
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ id }}</title>
+    <link rel="icon" href="data:image/ico;base64,aWNv">
+    <link rel="stylesheet" href="assets/style.css">
+    <script defer src="assets/script.js"></script>
+</head>
 
-<title>{{ id }}</title>
+<body>
+<div class="bg">
+    <textarea id="con">{{ content }}</textarea>
+</div>
+</body>
 
-<link rel="icon" href="data:image/ico;base64,aWNv">
-
-<link rel="stylesheet" href="assets/style.css">
-<script defer src="assets/script.js"></script>
-
-<textarea id="con">{{ content }}</textarea>
+</html>
