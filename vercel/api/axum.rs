@@ -1,22 +1,23 @@
 use askama::Template;
-use axum::extract::Path;
+use axum::extract::{DefaultBodyLimit, Path};
 use axum::http::Uri;
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use axum::{Router, routing::get};
 use axum_extra::TypedHeader;
-use axum_extra::headers::{self, CacheControl};
+use axum_extra::headers;
 use hyper::body::Bytes;
 use hyper::{StatusCode, header};
 use rand::distr::Alphanumeric;
 use rand::{Rng, rng};
 use rust_embed::RustEmbed;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::borrow::Cow;
-use tokio::time::Duration;
+use std::time::Duration;
+use tokio::sync::OnceCell;
 use tower::ServiceBuilder;
+use tower_http::cors::CorsLayer;
 use vercel_runtime::axum::VercelLayer;
 
 #[derive(RustEmbed)]
@@ -30,13 +31,10 @@ struct Note {
     content: String,
 }
 
-async fn root() -> Redirect {
-    Redirect::temporary(&rand_string(4))
-}
-
-pub enum Error {
+enum Error {
     BadRequest(String),
     Template(askama::Error),
+    Sqlx(sqlx::Error),
 }
 
 impl IntoResponse for Error {
@@ -45,6 +43,14 @@ impl IntoResponse for Error {
             Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
 
             Error::Template(e) => {
+                eprintln!("{e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal Server Error".to_string(),
+                )
+            }
+
+            Error::Sqlx(e) => {
                 eprintln!("{e}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -63,14 +69,23 @@ impl From<askama::Error> for Error {
     }
 }
 
+impl From<sqlx::Error> for Error {
+    fn from(err: sqlx::Error) -> Self {
+        Error::Sqlx(err)
+    }
+}
+
+static POOL: OnceCell<PgPool> = OnceCell::const_new();
+
+async fn root() -> Redirect {
+    Redirect::temporary(&rand_string(4))
+}
+
 async fn home(
     Path(id): Path<String>,
     TypedHeader(user_agent): TypedHeader<headers::UserAgent>,
 ) -> Result<impl IntoResponse, Error> {
-    let note = Note {
-        id: id,
-        content: "This is a note.".to_string(),
-    };
+    let note = Note::read(id).await?;
 
     const CLI: [&str; 2] = ["curl", "wget"];
     let is_cli = CLI.iter().any(|agent| user_agent.as_str().contains(agent));
@@ -87,6 +102,16 @@ async fn home(
     }
 }
 
+async fn raw(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
+    let note = Note::read(id).await?;
+
+    Ok((
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        note.content,
+    )
+        .into_response())
+}
+
 async fn assets(Path(file): Path<String>) -> impl IntoResponse {
     match Assets::get(&file) {
         Some(obj) => {
@@ -98,7 +123,7 @@ async fn assets(Path(file): Path<String>) -> impl IntoResponse {
                 "application/octet-stream"
             };
 
-            let cache_control = format!("public, max-age={}", 60 * 60 * 24 * 30 * 6); // 6 months
+            let cache_control = format!("lic, max-age={}", 60 * 60 * 24 * 30 * 6); // 6 months
 
             let bytes = match obj.data {
                 Cow::Borrowed(slice) => Bytes::from_static(slice),
@@ -125,12 +150,56 @@ async fn favicon() -> impl IntoResponse {
             (header::CONTENT_TYPE, "image/x-icon"),
             (
                 header::CACHE_CONTROL,
-                format!("public, max-age={}", 60 * 60 * 24 * 30 * 12).as_str(),
+                format!("lic, max-age={}", 60 * 60 * 24 * 30 * 12).as_str(), // 1 year
             ),
         ],
         vec![],
     )
         .into_response()
+}
+
+async fn update_data(Path(id): Path<String>, bytes: Bytes) -> Result<impl IntoResponse, Error> {
+    let note = parsing(id.clone(), &bytes).await?;
+
+    note.write().await?;
+
+    Ok(StatusCode::OK.into_response())
+}
+
+async fn random_data(
+    TypedHeader(host): TypedHeader<headers::Host>,
+    bytes: Bytes,
+) -> Result<impl IntoResponse, Error> {
+    let id = rand_string(5);
+
+    let note = parsing(id.clone(), &bytes).await?;
+
+    note.write().await?;
+
+    Ok((StatusCode::OK, format!("{host}/-/{id}")).into_response())
+}
+
+async fn parsing(id: String, bytes: &Bytes) -> Result<Note, Error> {
+    #[derive(Deserialize)]
+    struct Payload {
+        t: String,
+    }
+
+    let t = 'a: {
+        if let Ok(form) = serde_urlencoded::from_bytes::<Payload>(bytes) {
+            break 'a form;
+        }
+
+        if let Ok(t) = std::str::from_utf8(bytes) {
+            break 'a Payload { t: t.to_string() };
+        }
+
+        return Err(Error::BadRequest(
+            "Invalid, expecting text utf-8.".to_string(),
+        ));
+    };
+
+    Ok(Note { id, content: t.t })
 }
 
 async fn fallback(uri: Uri) -> impl IntoResponse {
@@ -141,10 +210,13 @@ async fn fallback(uri: Uri) -> impl IntoResponse {
 async fn main() -> Result<(), vercel_runtime::Error> {
     let router = Router::new()
         .route("/", get(root))
-        .route("/{id}", get(home))
+        .route("/{id}", get(home).post(update_data))
+        .route("/d/{id}", get(raw).post(random_data))
         .route("/assets/{file}", get(assets))
         .route("/favicon.ico", get(favicon))
-        .fallback(fallback);
+        .fallback(fallback)
+        .layer(DefaultBodyLimit::max(5 << 20)) // 5 MB
+        .layer(CorsLayer::permissive());
 
     let app = ServiceBuilder::new()
         .layer(VercelLayer::new())
@@ -159,4 +231,65 @@ fn rand_string(n: usize) -> String {
         .take(n)
         .map(char::from)
         .collect()
+}
+
+impl Note {
+    async fn write(&self) -> Result<(), sqlx::Error> {
+        let pool = pool().await;
+
+        sqlx::query(
+            r#"
+            INSERT INTO notes (id, content) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET
+                content = excluded.content
+            "#,
+        )
+        .bind(&self.id)
+        .bind(&self.content)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn read(id: String) -> Result<Self, sqlx::Error> {
+        let pool = pool().await;
+
+        let content: String = sqlx::query_scalar("SELECT content FROM notes WHERE id = $1")
+            .bind(id.clone())
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or_default();
+
+        Ok(Note { id, content })
+    }
+}
+
+async fn pool() -> &'static PgPool {
+    POOL.get_or_init(|| async {
+        let db_str = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
+
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .min_connections(0)
+            .idle_timeout(Duration::from_secs(30))
+            .connect(&db_str)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS notes (
+                id TEXT PRIMARY KEY,
+                content TEXT
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        pool
+    })
+    .await
 }

@@ -16,6 +16,9 @@ rust-embed = "8"
 askama = "0.15"
 rand = "0.9"
 axum-extra = { version = "0.10", features = ["typed-header"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
+serde_urlencoded = "0.7"
+tower-http = { version = "0.6", features = ["cors"] }
 
 [[bin]]
 name = "axum"
