@@ -205,7 +205,7 @@ async fn random_data(
 
     note.write().await?;
 
-    Ok((StatusCode::OK, format!("{host}/-/{id}")))
+    Ok((StatusCode::OK, format!("{host}/d/{id}")))
 }
 
 async fn fallback(uri: Uri) -> impl IntoResponse {
