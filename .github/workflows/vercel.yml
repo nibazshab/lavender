@@ -14,23 +14,20 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Cache
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: ~/.pnpm-store
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: ${{ runner.os }}-pnpm-
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: latest
 
-      - name: Vercel
-        working-directory: vercel
+      - working-directory: vercel
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_DOC }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           pnpm add -g vercel
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
