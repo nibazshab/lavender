@@ -260,67 +260,67 @@ use sqlx::SqlitePool as DbPool;
 
 static POOL: OnceCell<DbPool> = OnceCell::const_new();
 
-async fn pool() -> &'static DbPool {
-    POOL.get_or_init(|| async {
-        let pool: DbPool;
+async fn init_pool() -> DbPool {
+    let pool: DbPool;
 
-        #[cfg(feature = "serverless")]
-        {
-            use sqlx::postgres::PgPoolOptions;
-            use std::time::Duration;
+    #[cfg(feature = "serverless")]
+    {
+        use sqlx::postgres::PgPoolOptions;
+        use std::time::Duration;
 
-            let db_str = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-                "postgres://postgres:password@localhost:5432/postgres".to_string()
-            });
+        let db_str = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
 
-            pool = PgPoolOptions::new()
-                .max_connections(1)
-                .min_connections(0)
-                .idle_timeout(Duration::from_secs(30))
-                .connect(&db_str)
-                .await
-                .unwrap();
-        }
+        pool = PgPoolOptions::new()
+            .max_connections(1)
+            .min_connections(0)
+            .idle_timeout(Duration::from_secs(30))
+            .connect(&db_str)
+            .await
+            .unwrap();
+    }
 
-        #[cfg(not(feature = "serverless"))]
-        {
-            use sqlx::sqlite::{
-                SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqliteSynchronous,
-            };
-            use std::str::FromStr;
+    #[cfg(not(feature = "serverless"))]
+    {
+        use sqlx::sqlite::{
+            SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqliteSynchronous,
+        };
+        use std::str::FromStr;
 
-            let dir = std::env::var("DATA_DIR").ok().unwrap_or_else(|| {
-                let mut path = std::env::current_exe().unwrap();
-                path.pop();
-                path.display().to_string()
-            });
+        let dir = {
+            let mut path = std::env::current_exe().unwrap();
+            path.pop();
+            path.display().to_string()
+        };
 
-            let db_str = std::path::Path::new(format!("sqlite:{dir}").as_str())
-                .join("note.db")
-                .display()
-                .to_string();
+        let db_str = std::path::Path::new(format!("sqlite:{dir}").as_str())
+            .join("note.db")
+            .display()
+            .to_string();
 
-            let options = SqliteConnectOptions::from_str(&db_str)
-                .unwrap()
-                .journal_mode(SqliteJournalMode::Wal)
-                .synchronous(SqliteSynchronous::Normal)
-                .create_if_missing(true);
+        let options = SqliteConnectOptions::from_str(&db_str)
+            .unwrap()
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .create_if_missing(true);
 
-            pool = SqlitePool::connect_with(options).await.unwrap();
-        }
+        pool = SqlitePool::connect_with(options).await.unwrap();
+    }
 
-        const SCHEMA: &str = r#"
-            CREATE TABLE IF NOT EXISTS notes (
-                id TEXT PRIMARY KEY,
-                content TEXT
-            );
-            "#;
+    const SCHEMA: &str = r#"
+        CREATE TABLE IF NOT EXISTS notes (
+            id TEXT PRIMARY KEY,
+            content TEXT
+        );
+        "#;
 
-        sqlx::query(SCHEMA).execute(&pool).await.unwrap();
+    sqlx::query(SCHEMA).execute(&pool).await.unwrap();
 
-        pool
-    })
-    .await
+    pool
+}
+
+pub async fn pool() -> &'static DbPool {
+    POOL.get_or_init(init_pool).await
 }
 
 pub fn router() -> Router {

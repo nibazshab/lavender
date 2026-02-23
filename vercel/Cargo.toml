@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
@@ -19,13 +19,14 @@ axum-extra = { version = "0.10", features = ["typed-header"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls"] }
 serde_urlencoded = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
+tokio-util = { version = "0.7", features = ["io"], optional = true }
 
 [lib]
 path = "core/lib.rs"
 
 [[bin]]
-name = "vercel"
-path = "api/vercel.rs"
+name = "srv"
+path = "api/srv.rs"
 
 [profile.release]
 codegen-units = 1
@@ -35,4 +36,4 @@ opt-level = 3
 [features]
 default = ["server"]
 serverless = ["sqlx/postgres"]
-server = ["sqlx/sqlite"]
+server = ["sqlx/sqlite" , "axum/multipart", "tokio-util"]

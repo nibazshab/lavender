@@ -1,15 +1,13 @@
+use axum::Router;
 use tower::ServiceBuilder;
-use vercel_runtime::axum::VercelLayer;
+use vercel_runtime::axum::{VercelLayer, VercelService};
 
 use app::router;
 
-#[tokio::main]
-async fn main() -> Result<(), vercel_runtime::Error> {
+pub fn app() -> VercelService<Router> {
     let router = router();
 
-    let app = ServiceBuilder::new()
+    ServiceBuilder::new()
         .layer(VercelLayer::new())
-        .service(router);
-
-    vercel_runtime::run(app).await
+        .service(router)
 }
