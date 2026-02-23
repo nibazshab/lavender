@@ -11,14 +11,9 @@ use rand::distr::Alphanumeric;
 use rand::{Rng, rng};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
-use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
 use std::borrow::Cow;
-use std::time::Duration;
 use tokio::sync::OnceCell;
-use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
-use vercel_runtime::axum::VercelLayer;
 
 #[derive(RustEmbed)]
 #[folder = "templates/assets/"]
@@ -105,8 +100,6 @@ impl From<sqlx::Error> for Error {
         Error::Sqlx(err)
     }
 }
-
-static POOL: OnceCell<PgPool> = OnceCell::const_new();
 
 async fn redirect() -> impl IntoResponse {
     Redirect::temporary(&rand_string(4))
@@ -212,39 +205,28 @@ async fn fallback(uri: Uri) -> impl IntoResponse {
     format!("Axum fallback for path {}", uri.path())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), vercel_runtime::Error> {
-    let router = Router::new()
-        .route("/", get(redirect).post(random_data))
-        .route("/{id}", get(home).post(update_data))
-        .route("/d/{id}", get(raw))
-        .route("/assets/{file}", get(assets))
-        .route("/favicon.ico", get(favicon))
-        .fallback(fallback)
-        .layer(DefaultBodyLimit::max(5 << 20)) // 5 MB
-        .layer(CorsLayer::permissive());
-
-    let app = ServiceBuilder::new()
-        .layer(VercelLayer::new())
-        .service(router);
-
-    vercel_runtime::run(app).await
+fn rand_string(n: usize) -> String {
+    rng()
+        .sample_iter(&Alphanumeric)
+        .take(n)
+        .map(char::from)
+        .collect()
 }
 
 impl Note {
     async fn write(&self) -> Result<(), sqlx::Error> {
         let pool = pool().await;
 
-        sqlx::query(
-            r#"
+        const QUERY: &str = r#"
             INSERT INTO notes (id, content) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET
                 content = excluded.content
-            "#,
-        )
-        .bind(&self.id)
-        .bind(&self.content)
-        .execute(pool)
-        .await?;
+            "#;
+
+        sqlx::query(QUERY)
+            .bind(&self.id)
+            .bind(&self.content)
+            .execute(pool)
+            .await?;
 
         Ok(())
     }
@@ -252,8 +234,10 @@ impl Note {
     async fn read(id: String) -> Result<Self, sqlx::Error> {
         let pool = pool().await;
 
-        let content: String = sqlx::query_scalar("SELECT content FROM notes WHERE id = $1")
-            .bind(id.clone())
+        const QUERY: &str = "SELECT content FROM notes WHERE id = $1";
+
+        let content: String = sqlx::query_scalar(QUERY)
+            .bind(&id)
             .fetch_optional(pool)
             .await?
             .unwrap_or_default();
@@ -262,40 +246,91 @@ impl Note {
     }
 }
 
-async fn pool() -> &'static PgPool {
+#[cfg(all(feature = "server", feature = "serverless"))]
+compile_error!("Just can enable one database.");
+
+#[cfg(not(any(feature = "server", feature = "serverless")))]
+compile_error!("Need to enable one database.");
+
+#[cfg(feature = "serverless")]
+use sqlx::PgPool as DbPool;
+
+#[cfg(not(feature = "serverless"))]
+use sqlx::SqlitePool as DbPool;
+
+static POOL: OnceCell<DbPool> = OnceCell::const_new();
+
+async fn pool() -> &'static DbPool {
     POOL.get_or_init(|| async {
-        let db_str = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
+        let pool: DbPool;
 
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .min_connections(0)
-            .idle_timeout(Duration::from_secs(30))
-            .connect(&db_str)
-            .await
-            .unwrap();
+        #[cfg(feature = "serverless")]
+        {
+            use sqlx::postgres::PgPoolOptions;
+            use std::time::Duration;
 
-        sqlx::query(
-            r#"
+            let db_str = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://postgres:password@localhost:5432/postgres".to_string()
+            });
+
+            pool = PgPoolOptions::new()
+                .max_connections(1)
+                .min_connections(0)
+                .idle_timeout(Duration::from_secs(30))
+                .connect(&db_str)
+                .await
+                .unwrap();
+        }
+
+        #[cfg(not(feature = "serverless"))]
+        {
+            use sqlx::sqlite::{
+                SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqliteSynchronous,
+            };
+            use std::str::FromStr;
+
+            let dir = std::env::var("DATA_DIR").ok().unwrap_or_else(|| {
+                let mut path = std::env::current_exe().unwrap();
+                path.pop();
+                path.display().to_string()
+            });
+
+            let db_str = std::path::Path::new(format!("sqlite:{dir}").as_str())
+                .join("note.db")
+                .display()
+                .to_string();
+
+            let options = SqliteConnectOptions::from_str(&db_str)
+                .unwrap()
+                .journal_mode(SqliteJournalMode::Wal)
+                .synchronous(SqliteSynchronous::Normal)
+                .create_if_missing(true);
+
+            pool = SqlitePool::connect_with(options).await.unwrap();
+        }
+
+        const SCHEMA: &str = r#"
             CREATE TABLE IF NOT EXISTS notes (
                 id TEXT PRIMARY KEY,
                 content TEXT
             );
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+            "#;
+
+        sqlx::query(SCHEMA).execute(&pool).await.unwrap();
 
         pool
     })
     .await
 }
 
-fn rand_string(n: usize) -> String {
-    rng()
-        .sample_iter(&Alphanumeric)
-        .take(n)
-        .map(char::from)
-        .collect()
+pub fn router() -> Router {
+    Router::new()
+        .route("/", get(redirect).post(random_data))
+        .route("/{id}", get(home).post(update_data))
+        .route("/d/{id}", get(raw))
+        .route("/assets/{file}", get(assets))
+        .route("/favicon.ico", get(favicon))
+        .fallback(fallback)
+        .layer(DefaultBodyLimit::max(5 << 20)) // 5 MB
+        .layer(CorsLayer::permissive())
 }

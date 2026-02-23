@@ -1,5 +1,5 @@
 [package]
-name = "vercel-axum"
+name = "app"
 version = "0.1.0"
 edition = "2024"
 
@@ -16,15 +16,23 @@ rust-embed = "8"
 askama = "0.15"
 rand = "0.9"
 axum-extra = { version = "0.10", features = ["typed-header"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "tls-rustls"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls"] }
 serde_urlencoded = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 
+[lib]
+path = "core/lib.rs"
+
 [[bin]]
-name = "axum"
-path = "api/axum.rs"
+name = "vercel"
+path = "api/vercel.rs"
 
 [profile.release]
 codegen-units = 1
 lto = "fat"
 opt-level = 3
+
+[features]
+default = ["server"]
+serverless = ["sqlx/postgres"]
+server = ["sqlx/sqlite"]

@@ -9,6 +9,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "app"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "axum-extra",
+ "axum-streams",
+ "hyper",
+ "rand 0.9.2",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tower-http",
+ "vercel_runtime",
+]
+
+[[package]]
 name = "askama"
 version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -931,6 +952,7 @@ version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -2042,27 +2064,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "vercel-axum"
-version = "0.1.0"
-dependencies = [
- "askama",
- "axum",
- "axum-extra",
- "axum-streams",
- "hyper",
- "rand 0.9.2",
- "rust-embed",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sqlx",
- "tokio",
- "tower",
- "tower-http",
- "vercel_runtime",
-]
 
 [[package]]
 name = "vercel_runtime"
