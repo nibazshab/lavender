@@ -1,3 +1,71 @@
+## 说明
+
+### 1. vercel.rs
+
+vercel serverless 版本
+
+api
+
+- `/xx` - get/post
+- `/` - post
+- `/d/xx` - get
+
+env
+
+- `DATABASE_URL` - 数据库连接字符串
+
+### 2. server.rs
+
+正常版本，支持 Windows/Mac/Linux/FreeBSD
+
+api
+
+- `/xx` - get/post
+- `/` - post
+- `/d/xx` - get
+- `/file/` - get/post
+- `/file/x` - get/delete
+
+env
+
+- `PORT` - 监听端口号
+
+```sh
+# POST
+curl -d t="text" 127.0.0.1:8080/test
+curl -d "text" 127.0.0.1:8080
+cat /etc/hosts | curl --data-binary @- 127.0.0.1:8080/test
+cat /etc/hosts | curl -F f=@- 127.0.0.1:8080
+
+# POST
+curl -F f=@a.jpg 127.0.0.1:8080/b/
+# DELETE
+curl -X DELETE 127.0.0.1:8080/b/test -H 'token: 2A9B3F692B1715A6'
+```
+
+```ini
+[Unit]
+Description=webnote service
+[Service]
+Environment=PORT=10003
+ExecStart=/usr/local/webnote/webnote
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+```
+
+## 编译
+
+```sh
+cargo check
+cargo fmt --all -- --check
+cargo clippy -- -D warnings
+```
+
+```sh
+cargo build --verbose --release --no-default-features --features server
+```
+
 ## 待办事项
 
 没有钱续费服务器，开始研究一些邪门歪道的白嫖方案，可惜 LeanCloud 停止服务了

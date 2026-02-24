@@ -70,7 +70,7 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let pool = pool().await;
-    init_file_schema(&pool).await?;
+    init_file_schema(pool).await?;
 
     println!("Server running on {addr}");
 
@@ -109,11 +109,14 @@ struct Link {
     token: String,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum Column {
-    Name,
     Token,
-    Mime,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MultiColum {
+    NameMime,
 }
 
 #[derive(Debug)]
@@ -211,69 +214,54 @@ impl From<MultipartError> for Error {
     }
 }
 
-const EXT_MAP: &[(&str, &str)] = &[
-    ("jar", "application/java-archive"),
-    ("json", "application/json"),
-    ("pdf", "application/pdf"),
-    ("rss", "application/rss+xml"),
-    ("wasm", "application/wasm"),
-    ("xhtml", "application/xhtml+xml"),
-    ("xhtm", "application/xhtml+xml"),
-    ("xht", "application/xhtml+xml"),
-    ("dtd", "application/xml-dtd"),
-    ("xsl", "application/xml"),
-    ("xml", "application/xml"),
-    ("xslt", "application/xslt+xml"),
-    ("zip", "application/zip"),
-    ("flac", "audio/flac"),
-    ("m4a", "audio/mp4"),
-    ("mp2", "audio/mpeg"),
-    ("mp3", "audio/mpeg"),
-    ("mpga", "audio/mpeg"),
-    ("ogg", "audio/ogg"),
-    ("opus", "audio/ogg"),
-    ("oga", "audio/ogg"),
-    ("spx", "audio/ogg"),
-    ("wav", "audio/wav"),
-    ("mka", "audio/x-matroska"),
-    ("m3u", "audio/x-mpegurl"),
-    ("m3u8", "audio/x-mpegurl"),
-    ("otf", "font/otf"),
-    ("ttf", "font/ttf"),
-    ("woff", "font/woff"),
-    ("woff2", "font/woff2"),
-    ("apng", "image/apng"),
-    ("avif", "image/avif"),
-    ("gif", "image/gif"),
-    ("jpeg", "image/jpeg"),
-    ("jpe", "image/jpeg"),
-    ("jpg", "image/jpeg"),
-    ("jfif", "image/jpeg"),
-    ("jxl", "image/jxl"),
-    ("png", "image/png"),
-    ("svg", "image/svg+xml"),
-    ("svgz", "image/svg+xml"),
-    ("webp", "image/webp"),
-    ("css", "text/css"),
-    ("html", "text/html"),
-    ("htm", "text/html"),
-    ("js", "text/javascript"),
-    ("mjs", "text/javascript"),
-    ("txt", "text/plain"),
-    ("asc", "text/plain"),
-    ("conf", "text/plain"),
-    ("log", "text/plain"),
-    ("mp4", "video/mp4"),
-    ("m4v", "video/mp4"),
-    ("mpeg", "video/mpeg"),
-    ("mpe", "video/mpeg"),
-    ("mpg", "video/mpeg"),
-    ("qt", "video/quicktime"),
-    ("mov", "video/quicktime"),
-    ("webm", "video/webm"),
-    ("mkv", "video/x-matroska"),
-    ("avi", "video/x-msvideo"),
-];
+macro_rules! mime_table {
+    ($($mime:expr => $ext:expr),* $(,)?) => {
+        &[$(($mime, $ext)),*]
+    };
+}
+
+#[rustfmt::skip]
+const MIME_MAP: &[(&str, &str)] = mime_table! {
+    "application/java-archive" => "jar",
+    "application/json"         => "json",
+    "application/pdf"          => "pdf",
+    "application/rss+xml"      => "rss",
+    "application/wasm"         => "wasm",
+    "application/xhtml+xml"    => "xhtml xhtm xht",
+    "application/xml-dtd"      => "dtd",
+    "application/xml"          => "xsl xml",
+    "application/xslt+xml"     => "xslt",
+    "application/zip"          => "zip",
+    "audio/flac"               => "flac",
+    "audio/mp4"                => "m4a",
+    "audio/mpeg"               => "mp2 mp3 mpga",
+    "audio/ogg"                => "ogg opus oga spx",
+    "audio/wav"                => "wav",
+    "audio/x-matroska"         => "mka",
+    "audio/x-mpegurl"          => "m3u m3u8",
+    "font/otf"                 => "otf",
+    "font/ttf"                 => "ttf",
+    "font/woff"                => "woff",
+    "font/woff2"               => "woff2",
+    "image/apng"               => "apng",
+    "image/avif"               => "avif",
+    "image/gif"                => "gif",
+    "image/jpeg"               => "jpeg jpe jpg jfif",
+    "image/jxl"                => "jxl",
+    "image/png"                => "png",
+    "image/svg+xml"            => "svg svgz",
+    "image/webp"               => "webp",
+    "text/css"                 => "css",
+    "text/html"                => "html htm",
+    "text/javascript"          => "js mjs",
+    "text/plain"               => "txt asc conf log",
+    "video/mp4"                => "mp4 m4v",
+    "video/mpeg"               => "mpeg mpe mpg",
+    "video/quicktime"          => "qt mov",
+    "video/webm"               => "webm",
+    "video/x-matroska"         => "mkv",
+    "video/x-msvideo"          => "avi",
+};
 
 const DEFAULT_MIMETYPE: &str = "application/octet-stream";
 
@@ -323,7 +311,7 @@ fn file_router() -> Router {
 }
 
 async fn home() -> impl IntoResponse {
-    let id = "index.html".to_string();
+    let id = "index.html";
     file_assets(id)
 }
 
@@ -354,7 +342,7 @@ async fn storage(
     let mut tx = pool.begin().await?;
 
     // write db info
-    let filename = field.file_name().unwrap_or("unknown").to_string();
+    let filename = field.file_name().unwrap_or("unknown");
     let file = File::write_in_tx(filename, &mut tx).await?;
 
     // final dir
@@ -389,14 +377,11 @@ async fn storage(
 
 async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
     if id == "script.js" || id == "style.css" || id == "yy.js" {
-        return Ok(file_assets(id));
+        return Ok(file_assets(&id));
     }
 
     let key = hash(&id);
-
-    // todo 2 req -> 1 req
-    let filename = File::read_column::<String>(Column::Name, id.clone()).await?;
-    let mime = File::read_column::<String>(Column::Mime, id).await?;
+    let (filename, mime) = File::read_multi_column(MultiColum::NameMime, &id).await?;
 
     let dest = path_by(key);
     let metadata = tokio::fs::metadata(&dest).await?;
@@ -425,7 +410,7 @@ async fn remove(
     TypedHeader(input): TypedHeader<TokenHeader>,
 ) -> Result<impl IntoResponse, Error> {
     let key = hash(&id);
-    let recorded = File::read_column::<String>(Column::Token, id.clone()).await?;
+    let recorded = File::read_column::<String>(Column::Token, &id).await?;
 
     if input != recorded {
         return Err(Error::Forbidden);
@@ -434,7 +419,7 @@ async fn remove(
     let pool = pool().await;
     let mut tx = pool.begin().await?;
 
-    File::remove_in_tx(id.clone(), &mut tx).await?;
+    File::remove_in_tx(&id, &mut tx).await?;
 
     let dest = path_by(key);
     tokio::fs::remove_file(&dest).await?;
@@ -446,8 +431,8 @@ async fn remove(
     Ok(StatusCode::OK)
 }
 
-fn file_assets(file: String) -> Response {
-    match FileAssets::get(&file) {
+fn file_assets(file: &str) -> Response {
+    match FileAssets::get(file) {
         Some(obj) => {
             let bytes = match obj.data {
                 Cow::Borrowed(slice) => Bytes::from_static(slice),
@@ -456,7 +441,7 @@ fn file_assets(file: String) -> Response {
 
             (
                 [
-                    (header::CONTENT_TYPE, guess_mime(&file)),
+                    (header::CONTENT_TYPE, guess_mime(file)),
                     (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
                 ],
                 bytes,
@@ -498,20 +483,25 @@ fn hash(input: &str) -> u32 {
 fn guess_mime(filename: &str) -> &'static str {
     let ext = path::Path::new(filename)
         .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .unwrap_or_else(String::new);
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
 
-    for (e, mime) in EXT_MAP {
-        if *e == ext {
+    if ext.is_empty() {
+        return DEFAULT_MIMETYPE;
+    }
+
+    for (mime, exts) in MIME_MAP {
+        if exts.split_whitespace().any(|x| x == ext) {
             return mime;
         }
     }
+
     DEFAULT_MIMETYPE
 }
 
 fn path_by(key: u32) -> path::PathBuf {
-    let with_hex = format!("{:016x}", key);
+    let with_hex = format!("{key:016x}");
     let dir = &with_hex[0..2];
     let filename = &with_hex[2..];
 
@@ -546,7 +536,7 @@ fn escape(str: &str) -> Cow<'_, str> {
 
 impl File {
     async fn write_in_tx(
-        filename: String,
+        filename: &str,
         tx: &mut Transaction<'_, Sqlite>,
     ) -> Result<Self, sqlx::Error> {
         let id = rand_string(6);
@@ -555,11 +545,11 @@ impl File {
             token: random_token(),
         };
 
-        let mime = guess_mime(&filename);
+        let mime = guess_mime(filename);
 
         sqlx::query("INSERT INTO files (id, name, token, mime) VALUES (?1, ?2, ?3, ?4)")
             .bind(&file.id)
-            .bind(&filename)
+            .bind(filename)
             .bind(&file.token)
             .bind(mime)
             .execute(&mut **tx)
@@ -568,7 +558,7 @@ impl File {
         Ok(file)
     }
 
-    async fn remove_in_tx(id: String, tx: &mut Transaction<'_, Sqlite>) -> Result<(), sqlx::Error> {
+    async fn remove_in_tx(id: &str, tx: &mut Transaction<'_, Sqlite>) -> Result<(), sqlx::Error> {
         let result = sqlx::query("DELETE FROM files WHERE id = ?")
             .bind(id)
             .execute(&mut **tx)
@@ -581,18 +571,32 @@ impl File {
         Ok(())
     }
 
-    async fn read_column<T>(column: Column, id: String) -> Result<T, sqlx::Error>
+    async fn read_column<T>(column: Column, id: &str) -> Result<T, sqlx::Error>
     where
         T: for<'r> Decode<'r, Sqlite> + Type<Sqlite> + Send + Unpin,
     {
         let pool = pool().await;
 
         let query_str = match column {
-            Column::Name => "SELECT name FROM files WHERE id = ?",
             Column::Token => "SELECT token FROM files WHERE id = ?",
-            Column::Mime => "SELECT mime FROM files WHERE id = ?",
         };
 
         sqlx::query_scalar(query_str).bind(id).fetch_one(pool).await
+    }
+
+    async fn read_multi_column(
+        column: MultiColum,
+        id: &str,
+    ) -> Result<(String, String), sqlx::Error> {
+        let pool = pool().await;
+
+        let sql = match column {
+            MultiColum::NameMime => "SELECT token, mime FROM files WHERE id = ?",
+        };
+
+        sqlx::query_as::<_, (String, String)>(sql)
+            .bind(id)
+            .fetch_one(pool)
+            .await
     }
 }

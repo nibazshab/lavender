@@ -3,8 +3,7 @@ use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request};
 use axum::http::Uri;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Router, routing::get};
-use axum_extra::TypedHeader;
-use axum_extra::headers;
+use axum_extra::{TypedHeader, headers};
 use hyper::body::Bytes;
 use hyper::{StatusCode, header};
 use rand::distr::Alphanumeric;
@@ -105,7 +104,7 @@ async fn home(
     Path(id): Path<String>,
     TypedHeader(user_agent): TypedHeader<headers::UserAgent>,
 ) -> Result<impl IntoResponse, Error> {
-    let note = Note::read(id).await?;
+    let note = Note::read(&id).await?;
 
     const CLI: [&str; 2] = ["curl", "wget"];
     let is_cli = CLI.iter().any(|agent| user_agent.as_str().contains(agent));
@@ -123,7 +122,7 @@ async fn home(
 }
 
 async fn raw(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
-    let note = Note::read(id).await?;
+    let note = Note::read(&id).await?;
 
     Ok((
         [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
@@ -227,18 +226,21 @@ impl Note {
         Ok(())
     }
 
-    async fn read(id: String) -> Result<Self, sqlx::Error> {
+    async fn read(id: &str) -> Result<Self, sqlx::Error> {
         let pool = pool().await;
 
         const QUERY: &str = "SELECT content FROM notes WHERE id = $1";
 
-        let content: String = sqlx::query_scalar(QUERY)
-            .bind(&id)
+        let content = sqlx::query_scalar(QUERY)
+            .bind(id)
             .fetch_optional(pool)
             .await?
             .unwrap_or_default();
 
-        Ok(Note { id, content })
+        Ok(Note {
+            id: id.to_string(),
+            content,
+        })
     }
 }
 
