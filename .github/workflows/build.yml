@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,14 +20,16 @@ jobs:
           toolchain: stable
           override: true
 
-      - run: cargo build --verbose --release --no-default-features --features server
+      - run: |
+          cargo build --verbose --release --no-default-features --features server
+          install target/release/srv ./webnote
 
       - run: |
           mkdir dist
-          tar czf dist/webnote-linux-amd64.tar.gz -C target/release webnote
+          tar czf dist/webnote-linux-amd64.tar.gz -C webnote
 
       - uses: softprops/action-gh-release@v2
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
