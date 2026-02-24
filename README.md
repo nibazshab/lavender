@@ -26,10 +26,6 @@ api
 - `/file/` - get/post
 - `/file/x` - get/delete
 
-env
-
-- `PORT` - 监听端口号
-
 ```sh
 # POST
 curl -d t="text" 127.0.0.1:8080/test
@@ -42,6 +38,12 @@ curl -F f=@a.jpg 127.0.0.1:8080/b/
 # DELETE
 curl -X DELETE 127.0.0.1:8080/b/test -H 'token: 2A9B3F692B1715A6'
 ```
+
+env
+
+- `PORT` - 监听端口号
+
+Linux systemd 自启动配置文件示例
 
 ```ini
 [Unit]
@@ -66,18 +68,20 @@ cargo clippy -- -D warnings
 cargo build --verbose --release --no-default-features --features server
 ```
 
-## 待办事项
+## 其他
+
+### 1. 大饼
 
 没有钱续费服务器，开始研究一些邪门歪道的白嫖方案，可惜 LeanCloud 停止服务了
 
 - [x] 远程数据库 PostgreSQL
 - [x] Vercel 部署
 
-## 参考
+### 2. 参考
 
 - pereorga/minimalist-web-notepad
 
-## 题外话
+### 3. 题外话
 
 本质上这只是一个练手项目，用来学习用的
 

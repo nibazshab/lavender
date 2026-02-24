@@ -19,7 +19,7 @@ jobs:
           toolchain: stable
           override: true
 
-      - run: cargo build --verbose --release 
+      - run: cargo build --verbose --release --no-default-features --features server
 
       - run: |
           mkdir dist

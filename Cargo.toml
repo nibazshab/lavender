@@ -34,6 +34,6 @@ lto = "fat"
 opt-level = 3
 
 [features]
-default = ["server"]
+default = ["serverless"]
 serverless = ["sqlx/postgres", "vercel_runtime"]
 server = ["sqlx/sqlite" , "axum/multipart", "tokio-util"]
