@@ -8,7 +8,7 @@ use axum_extra::headers;
 use hyper::body::Bytes;
 use hyper::{StatusCode, header};
 use rand::distr::Alphanumeric;
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -46,11 +46,7 @@ where
 
         let con = serde_urlencoded::from_bytes::<NoteForm>(&bytes)
             .map(|f| f.t)
-            .or_else(|_| {
-                std::str::from_utf8(&bytes)
-                    .map(|s| s.to_string())
-                    .map_err(|_| ())
-            })
+            .or_else(|_| std::str::from_utf8(&bytes).map(|s| s.to_string()))
             .map_err(|_| Error::BadRequest("Invalid input".into()))?;
 
         Ok(NoteContent(con))

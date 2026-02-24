@@ -1,28 +1,29 @@
-use axum::Json;
 use axum::body::Body;
-use axum::extract::{Multipart, Path, State};
+use axum::extract::multipart::MultipartError;
+use axum::extract::{Multipart, Path};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::{Json, Router};
 use axum_extra::headers::{Header, HeaderName, HeaderValue};
 use axum_extra::{TypedHeader, headers};
 use hyper::body::Bytes;
 use rand::distr::Alphanumeric;
-use rand::{Rng, rng};
-use serde_json::json;
+use rand::{RngExt, rng};
+use rust_embed::RustEmbed;
+use serde::Serialize;
 use sqlx::{Decode, Sqlite, SqlitePool, Transaction, Type};
 use std::borrow::Cow;
 use std::cmp::PartialEq;
 use std::env;
 use std::fmt::Write;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::{fs, path};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
-use app::{pool, router};
+use app::{pool, router as main_router};
 
 pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1).peekable();
@@ -57,9 +58,19 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-
     let listener = TcpListener::bind(addr).await?;
-    let router = router().into_make_service_with_connect_info::<SocketAddr>();
+
+    let router = main_router()
+        .merge(file_router())
+        .into_make_service_with_connect_info::<SocketAddr>();
+
+    let attachment = ATTACHMENT_PATH.as_path();
+    if !attachment.exists() {
+        fs::create_dir_all(attachment)?;
+    }
+
+    let pool = pool().await;
+    init_file_schema(&pool).await?;
 
     println!("Server running on {addr}");
 
@@ -67,37 +78,22 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
         .with_graceful_shutdown(close())
         .await?;
 
-    let pool = pool().await;
     pool.close().await;
 
     Ok(())
 }
 
-async fn close() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c().await.unwrap();
+static ATTACHMENT_PATH: LazyLock<path::PathBuf> = LazyLock::new(|| {
+    let dir = {
+        let mut path = env::current_exe().unwrap();
+        path.pop();
+        path.display().to_string()
     };
 
-    #[cfg(unix)]
-    let terminate = {
-        async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .unwrap()
-                .recv()
-                .await;
-        }
-    };
+    path::Path::new(&dir).join("attachment")
+});
 
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
-}
-
-#[derive(rust_embed::RustEmbed)]
+#[derive(RustEmbed)]
 #[folder = "templates/file_cabinets/"]
 struct FileAssets;
 
@@ -107,97 +103,21 @@ struct File {
     token: String,
 }
 
+#[derive(Serialize)]
+struct Link {
+    url: String,
+    token: String,
+}
+
 #[derive(Debug, Copy, Clone)]
 enum Column {
     Name,
     Token,
+    Mime,
 }
 
 #[derive(Debug)]
 struct TokenHeader(String);
-
-enum Error {
-    Io(std::io::Error),
-    Sqlx(sqlx::Error),
-    BadRequest(String),
-    Forbidden,
-    NotFound,
-}
-
-static ATTACHMENT_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
-    let dir = {
-        let mut path = std::env::current_exe().unwrap();
-        path.pop();
-        path.display().to_string()
-    };
-
-    path::Path::new(&dir).join("attachment")
-});
-
-fn rand_string(n: usize) -> String {
-    rng()
-        .sample_iter(&Alphanumeric)
-        .take(n)
-        .map(char::from)
-        .collect()
-}
-
-fn hash(input: &str) -> u32 {
-    let mut hash: u32 = 5381; // djb2 initial value
-
-    for byte in input.bytes() {
-        hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
-    }
-
-    hash
-}
-
-impl File {
-    async fn write_in_tx(
-        filename: String,
-        tx: &mut Transaction<'_, Sqlite>,
-    ) -> Result<Self, sqlx::Error> {
-        let id = rand_string(6);
-        let file = File {
-            id,
-            token: random_token(),
-        };
-
-        sqlx::query("INSERT INTO files (id, name, token) VALUES (?1, ?2, ?3)")
-            .bind(&file.id)
-            .bind(&filename)
-            .bind(&file.token)
-            .execute(&mut **tx)
-            .await?;
-
-        Ok(file)
-    }
-
-    async fn remove_in_tx(id: String, tx: &mut Transaction<'_, Sqlite>) -> Result<(), sqlx::Error> {
-        let result = sqlx::query("DELETE FROM files WHERE id = ?")
-            .bind(id)
-            .execute(&mut **tx)
-            .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(sqlx::Error::RowNotFound);
-        }
-
-        Ok(())
-    }
-
-    async fn read_column<T>(column: Column, id: String, pool: &SqlitePool) -> Result<T, sqlx::Error>
-    where
-        T: for<'r> Decode<'r, Sqlite> + Type<Sqlite> + Send + Unpin,
-    {
-        let query_str = match column {
-            Column::Name => "SELECT name FROM files WHERE id = ?",
-            Column::Token => "SELECT token FROM files WHERE id = ?",
-        };
-
-        sqlx::query_scalar(query_str).bind(id).fetch_one(pool).await
-    }
-}
 
 impl Header for TokenHeader {
     fn name() -> &'static HeaderName {
@@ -228,6 +148,15 @@ impl PartialEq<String> for TokenHeader {
     }
 }
 
+enum Error {
+    Io(std::io::Error),
+    Sqlx(sqlx::Error),
+    BadRequest(String),
+    Forbidden,
+    NotFound,
+    Unpredictable,
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, message) = match self {
@@ -248,6 +177,13 @@ impl IntoResponse for Error {
             Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             Error::Forbidden => (StatusCode::FORBIDDEN, "Forbidden".to_string()),
             Error::NotFound => (StatusCode::NOT_FOUND, "Not Found".to_string()),
+            Error::Unpredictable => {
+                eprintln!("Unpredictable Error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal Server Error".to_string(),
+                )
+            }
         };
 
         (status, message).into_response()
@@ -269,171 +205,275 @@ impl From<sqlx::Error> for Error {
     }
 }
 
-fn file_router() -> axum::Router<SqlitePool> {
-    axum::Router::new()
-        .route("/b/", get(index_page).post(upload))
-        .route("/b/{id}", get(download).delete(remove))
+impl From<MultipartError> for Error {
+    fn from(err: MultipartError) -> Self {
+        Error::BadRequest(err.to_string())
+    }
 }
 
-fn init_os_dir() -> std::io::Result<()> {
-    let attachment = ATTACHMENT_PATH.clone();
+const EXT_MAP: &[(&str, &str)] = &[
+    ("jar", "application/java-archive"),
+    ("json", "application/json"),
+    ("pdf", "application/pdf"),
+    ("rss", "application/rss+xml"),
+    ("wasm", "application/wasm"),
+    ("xhtml", "application/xhtml+xml"),
+    ("xhtm", "application/xhtml+xml"),
+    ("xht", "application/xhtml+xml"),
+    ("dtd", "application/xml-dtd"),
+    ("xsl", "application/xml"),
+    ("xml", "application/xml"),
+    ("xslt", "application/xslt+xml"),
+    ("zip", "application/zip"),
+    ("flac", "audio/flac"),
+    ("m4a", "audio/mp4"),
+    ("mp2", "audio/mpeg"),
+    ("mp3", "audio/mpeg"),
+    ("mpga", "audio/mpeg"),
+    ("ogg", "audio/ogg"),
+    ("opus", "audio/ogg"),
+    ("oga", "audio/ogg"),
+    ("spx", "audio/ogg"),
+    ("wav", "audio/wav"),
+    ("mka", "audio/x-matroska"),
+    ("m3u", "audio/x-mpegurl"),
+    ("m3u8", "audio/x-mpegurl"),
+    ("otf", "font/otf"),
+    ("ttf", "font/ttf"),
+    ("woff", "font/woff"),
+    ("woff2", "font/woff2"),
+    ("apng", "image/apng"),
+    ("avif", "image/avif"),
+    ("gif", "image/gif"),
+    ("jpeg", "image/jpeg"),
+    ("jpe", "image/jpeg"),
+    ("jpg", "image/jpeg"),
+    ("jfif", "image/jpeg"),
+    ("jxl", "image/jxl"),
+    ("png", "image/png"),
+    ("svg", "image/svg+xml"),
+    ("svgz", "image/svg+xml"),
+    ("webp", "image/webp"),
+    ("css", "text/css"),
+    ("html", "text/html"),
+    ("htm", "text/html"),
+    ("js", "text/javascript"),
+    ("mjs", "text/javascript"),
+    ("txt", "text/plain"),
+    ("asc", "text/plain"),
+    ("conf", "text/plain"),
+    ("log", "text/plain"),
+    ("mp4", "video/mp4"),
+    ("m4v", "video/mp4"),
+    ("mpeg", "video/mpeg"),
+    ("mpe", "video/mpeg"),
+    ("mpg", "video/mpeg"),
+    ("qt", "video/quicktime"),
+    ("mov", "video/quicktime"),
+    ("webm", "video/webm"),
+    ("mkv", "video/x-matroska"),
+    ("avi", "video/x-msvideo"),
+];
 
-    if !attachment.exists() {
-        fs::create_dir_all(attachment)?;
+const DEFAULT_MIMETYPE: &str = "application/octet-stream";
+
+async fn close() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.unwrap();
+    };
+
+    #[cfg(unix)]
+    let terminate = {
+        async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .unwrap()
+                .recv()
+                .await;
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
     }
+}
+
+async fn init_file_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    const SCHEMA: &str = r#"
+       CREATE TABLE IF NOT EXISTS files (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            token TEXT,
+            mime TEXT
+        );
+        "#;
+
+    sqlx::query(SCHEMA).execute(pool).await?;
 
     Ok(())
 }
 
-fn schema() -> &'static str {
-    "
-CREATE TABLE IF NOT EXISTS files (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    token TEXT
-);"
+fn file_router() -> Router {
+    Router::new()
+        .route("/file/", get(home).post(storage))
+        .route("/file/{id}", get(download).delete(remove))
 }
 
-async fn upload(
-    State(pool): State<SqlitePool>,
+async fn home() -> impl IntoResponse {
+    let id = "index.html".to_string();
+    file_assets(id)
+}
+
+async fn storage(
     TypedHeader(host): TypedHeader<headers::Host>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, Error> {
+    // received
     let mut field = multipart
         .next_field()
-        .await
-        .map_err(|e| Error::BadRequest(e.to_string()))?
-        .ok_or_else(|| Error::BadRequest("Expecting a file.".to_string()))?;
+        .await?
+        .ok_or(Error::BadRequest("Invalid input".to_string()))?;
 
-    let tmp_dir = ATTACHMENT_PATH.join("_tmp");
-    tokio::fs::create_dir_all(&tmp_dir).await?;
-    let tmp_path = tmp_dir.join(temp_filename());
+    // temp dir
+    let _tmp = ATTACHMENT_PATH.join("_tmp");
+    let tmp = _tmp.join(rand::random::<u32>().to_string());
+    tokio::fs::create_dir_all(&_tmp).await?;
 
-    let mut dest = tokio::fs::File::create(&tmp_path).await?;
-    while let Some(chunk) = field
-        .chunk()
-        .await
-        .map_err(|e| Error::BadRequest(e.to_string()))?
-    {
+    // save temp/data
+    let mut dest = tokio::fs::File::create(&tmp).await?;
+    while let Some(chunk) = field.chunk().await? {
         dest.write_all(&chunk).await?;
     }
     dest.sync_all().await?;
 
+    // db transaction
+    let pool = pool().await;
     let mut tx = pool.begin().await?;
 
+    // write db info
     let filename = field.file_name().unwrap_or("unknown").to_string();
     let file = File::write_in_tx(filename, &mut tx).await?;
 
+    // final dir
     let key = hash(&file.id);
-    let final_path = storage(key).await?;
+    let fin = path_by(key);
+    let parent = fin.parent().ok_or(Error::Unpredictable)?;
+    tokio::fs::create_dir_all(parent).await?;
 
-    if let Err(e) = tokio::fs::rename(&tmp_path, &final_path).await {
+    // move temp/data to final/data
+    if let Err(e) = tokio::fs::rename(&tmp, &fin).await {
         eprintln!("{e}");
-        if let Err(e) = tokio::fs::remove_file(&tmp_path).await {
+
+        // db rollback, delete temp/data
+        if let Err(e) = tokio::fs::remove_file(&tmp).await {
             eprintln!("{e}");
         }
         return Err(e.into());
     }
 
+    // db commit
     tx.commit().await?;
 
     println!("{} created", file.id);
-    Ok(Json(json!({
-        "link": format!("{host}/b/{}", file.id),
-        "token": file.token,
-    })))
+
+    let link = Link {
+        url: format!("{host}/file/{}", file.id),
+        token: file.token,
+    };
+
+    Ok(Json(link))
 }
 
-async fn download(
-    Path(id): Path<String>,
-    State(pool): State<SqlitePool>,
-) -> Result<impl IntoResponse, Error> {
+async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
     if id == "script.js" || id == "style.css" || id == "yy.js" {
-        return Ok(page(Path(id)));
+        return Ok(file_assets(id));
     }
 
     let key = hash(&id);
-    let filename = File::read_column::<String>(Column::Name, id, &pool).await?;
 
-    let dest = storage(key).await?;
+    // todo 2 req -> 1 req
+    let filename = File::read_column::<String>(Column::Name, id.clone()).await?;
+    let mime = File::read_column::<String>(Column::Mime, id).await?;
 
+    let dest = path_by(key);
     let metadata = tokio::fs::metadata(&dest).await?;
     if !metadata.is_file() {
-        return Err(Error::NotFound);
+        return Err(Error::Unpredictable);
     }
 
-    let f = tokio::fs::File::open(dest).await?;
-    let stream = tokio_util::io::ReaderStream::new(f);
+    let obj = tokio::fs::File::open(dest).await?;
+    let stream = tokio_util::io::ReaderStream::new(obj);
     let body = Body::from_stream(stream);
 
-    let safe_name = safe_filename(&filename);
-
-    let headers = [(
-        header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{safe_name}\""),
-    )];
+    let filename = escape(&filename);
+    let headers = [
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        ),
+        (header::CONTENT_TYPE, mime),
+    ];
 
     Ok((headers, body).into_response())
 }
 
 async fn remove(
     Path(id): Path<String>,
-    State(pool): State<SqlitePool>,
-    TypedHeader(token_input): TypedHeader<TokenHeader>,
+    TypedHeader(input): TypedHeader<TokenHeader>,
 ) -> Result<impl IntoResponse, Error> {
     let key = hash(&id);
-    let token_recorded = File::read_column::<String>(Column::Token, id.clone(), &pool).await?;
-    if token_input != token_recorded {
+    let recorded = File::read_column::<String>(Column::Token, id.clone()).await?;
+
+    if input != recorded {
         return Err(Error::Forbidden);
     }
 
+    let pool = pool().await;
     let mut tx = pool.begin().await?;
 
     File::remove_in_tx(id.clone(), &mut tx).await?;
 
-    let dest = storage(key).await?;
+    let dest = path_by(key);
     tokio::fs::remove_file(&dest).await?;
 
     tx.commit().await?;
 
     println!("{id} removed");
+
     Ok(StatusCode::OK)
 }
 
-async fn index_page() -> impl IntoResponse {
-    let id = "index.html".to_string();
-    page(Path(id))
-}
+fn file_assets(file: String) -> Response {
+    match FileAssets::get(&file) {
+        Some(obj) => {
+            let bytes = match obj.data {
+                Cow::Borrowed(slice) => Bytes::from_static(slice),
+                Cow::Owned(vec) => Bytes::from(vec),
+            };
 
-fn page(Path(id): Path<String>) -> Response {
-    match FileAssets::get(&id) {
-        Some(obj) => release_assets(&id, obj.data),
+            (
+                [
+                    (header::CONTENT_TYPE, guess_mime(&file)),
+                    (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
+                ],
+                bytes,
+            )
+                .into_response()
+        }
+
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
-fn release_assets(filename: &str, data: Cow<'static, [u8]>) -> Response {
-    let content_type = if filename.ends_with(".js") {
-        "text/javascript"
-    } else if filename.ends_with(".css") {
-        "text/css"
-    } else {
-        "application/octet-stream"
-    };
-
-    let bytes = match data {
-        Cow::Borrowed(slice) => Bytes::from_static(slice),
-        Cow::Owned(vec) => Bytes::from(vec),
-    };
-
-    (
-        [
-            (header::CONTENT_TYPE, content_type),
-            (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
-        ],
-        bytes,
-    )
-        .into_response()
+fn rand_string(n: usize) -> String {
+    rng()
+        .sample_iter(&Alphanumeric)
+        .take(n)
+        .map(char::from)
+        .collect()
 }
 
 fn random_token() -> String {
@@ -445,32 +485,49 @@ fn random_token() -> String {
         })
 }
 
-async fn storage(key: u32) -> Result<PathBuf, std::io::Error> {
-    // todo fix, key from i64 -> u32, is it work well?
+fn hash(input: &str) -> u32 {
+    let mut hash: u32 = 5381; // djb2 initial value
+
+    for byte in input.bytes() {
+        hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
+    }
+
+    hash
+}
+
+fn guess_mime(filename: &str) -> &'static str {
+    let ext = path::Path::new(filename)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .unwrap_or_else(String::new);
+
+    for (e, mime) in EXT_MAP {
+        if *e == ext {
+            return mime;
+        }
+    }
+    DEFAULT_MIMETYPE
+}
+
+fn path_by(key: u32) -> path::PathBuf {
     let with_hex = format!("{:016x}", key);
     let dir = &with_hex[0..2];
     let filename = &with_hex[2..];
 
-    let dir_path = ATTACHMENT_PATH.join(dir);
-    tokio::fs::create_dir_all(&dir_path).await?;
-
-    Ok(dir_path.join(filename))
+    ATTACHMENT_PATH.join(dir).join(filename)
 }
 
-fn temp_filename() -> String {
-    rand::random::<u32>().to_string()
-}
-
-fn safe_filename(name: &str) -> Cow<'_, str> {
-    if !name
+fn escape(str: &str) -> Cow<'_, str> {
+    if !str
         .chars()
         .any(|c| matches!(c, '"' | '\\' | '/' | ':' | '|' | '<' | '>' | '?' | '*'))
     {
-        return Cow::Borrowed(name);
+        return Cow::Borrowed(str);
     }
 
-    let mut s = String::with_capacity(name.len() + 20);
-    for c in name.chars() {
+    let mut s = String::with_capacity(str.len() + 20);
+    for c in str.chars() {
         match c {
             '"' => s.push_str("%22"),
             '\\' => s.push_str("%5C"),
@@ -485,4 +542,57 @@ fn safe_filename(name: &str) -> Cow<'_, str> {
         }
     }
     Cow::Owned(s)
+}
+
+impl File {
+    async fn write_in_tx(
+        filename: String,
+        tx: &mut Transaction<'_, Sqlite>,
+    ) -> Result<Self, sqlx::Error> {
+        let id = rand_string(6);
+        let file = File {
+            id,
+            token: random_token(),
+        };
+
+        let mime = guess_mime(&filename);
+
+        sqlx::query("INSERT INTO files (id, name, token, mime) VALUES (?1, ?2, ?3, ?4)")
+            .bind(&file.id)
+            .bind(&filename)
+            .bind(&file.token)
+            .bind(mime)
+            .execute(&mut **tx)
+            .await?;
+
+        Ok(file)
+    }
+
+    async fn remove_in_tx(id: String, tx: &mut Transaction<'_, Sqlite>) -> Result<(), sqlx::Error> {
+        let result = sqlx::query("DELETE FROM files WHERE id = ?")
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        Ok(())
+    }
+
+    async fn read_column<T>(column: Column, id: String) -> Result<T, sqlx::Error>
+    where
+        T: for<'r> Decode<'r, Sqlite> + Type<Sqlite> + Send + Unpin,
+    {
+        let pool = pool().await;
+
+        let query_str = match column {
+            Column::Name => "SELECT name FROM files WHERE id = ?",
+            Column::Token => "SELECT token FROM files WHERE id = ?",
+            Column::Mime => "SELECT mime FROM files WHERE id = ?",
+        };
+
+        sqlx::query_scalar(query_str).bind(id).fetch_one(pool).await
+    }
 }
