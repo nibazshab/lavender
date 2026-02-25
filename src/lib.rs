@@ -244,16 +244,16 @@ impl Note {
     }
 }
 
-#[cfg(all(feature = "server", feature = "serverless"))]
-compile_error!("Just can enable one database.");
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+compile_error!("Choose only one database backend.");
 
-#[cfg(not(any(feature = "server", feature = "serverless")))]
-compile_error!("Need to enable one database.");
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+compile_error!("Choose one database backend.");
 
-#[cfg(feature = "serverless")]
+#[cfg(feature = "postgres")]
 use sqlx::PgPool as DbPool;
 
-#[cfg(not(feature = "serverless"))]
+#[cfg(feature = "sqlite")]
 use sqlx::SqlitePool as DbPool;
 
 static POOL: OnceCell<DbPool> = OnceCell::const_new();
@@ -261,7 +261,7 @@ static POOL: OnceCell<DbPool> = OnceCell::const_new();
 async fn init_pool() -> DbPool {
     let pool: DbPool;
 
-    #[cfg(feature = "serverless")]
+    #[cfg(feature = "postgres")]
     {
         use sqlx::postgres::PgPoolOptions;
         use std::time::Duration;
@@ -278,7 +278,7 @@ async fn init_pool() -> DbPool {
             .unwrap();
     }
 
-    #[cfg(not(feature = "serverless"))]
+    #[cfg(feature = "sqlite")]
     {
         use sqlx::sqlite::{
             SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqliteSynchronous,
@@ -332,3 +332,9 @@ pub fn router() -> Router {
         .layer(DefaultBodyLimit::max(5 << 20)) // 5 MB
         .layer(CorsLayer::permissive())
 }
+
+#[cfg(feature = "serverless")]
+pub mod vercel;
+
+#[cfg(feature = "server")]
+pub mod server;

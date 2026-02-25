@@ -2,7 +2,7 @@ use axum::Router;
 use tower::ServiceBuilder;
 use vercel_runtime::axum::{VercelLayer, VercelService};
 
-use app::router;
+use crate::router;
 
 pub fn app() -> VercelService<Router> {
     let router = router();

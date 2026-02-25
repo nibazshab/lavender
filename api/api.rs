@@ -1,21 +1,21 @@
 #[cfg(feature = "serverless")]
-mod vercel;
+use app::vercel::app;
 
-#[cfg(not(feature = "serverless"))]
-mod server;
+#[cfg(feature = "server")]
+use app::server::app;
 
 #[cfg(feature = "serverless")]
 #[tokio::main]
 async fn main() -> Result<(), vercel_runtime::Error> {
-    let app = vercel::app();
+    let app = app();
 
     vercel_runtime::run(app).await
 }
 
-#[cfg(not(feature = "serverless"))]
+#[cfg(feature = "server")]
 #[tokio::main]
 async fn main() {
-    if let Err(e) = server::app().await {
+    if let Err(e) = app().await {
         eprintln!("{e}");
 
         std::process::exit(1);

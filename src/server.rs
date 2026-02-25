@@ -23,7 +23,8 @@ use std::{fs, path};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
-use app::{pool, router as main_router};
+use crate::pool;
+use crate::router as main_router;
 
 pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1).peekable();

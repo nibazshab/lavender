@@ -1,8 +1,6 @@
 ## 说明
 
-### 1. vercel.rs
-
-vercel serverless 版本
+### 1. vercel serverless 版本
 
 api
 
@@ -14,9 +12,7 @@ env
 
 - `DATABASE_URL` - 数据库连接字符串
 
-### 2. server.rs
-
-正常版本，支持 Windows/Mac/Linux/FreeBSD
+### 2. server 正常版本
 
 api
 
