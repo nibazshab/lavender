@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request};
+use axum::extract::{DefaultBodyLimit, FromRequest, OriginalUri, Path, Request};
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Router, routing::get};
@@ -181,7 +181,7 @@ async fn update_data(
 }
 
 async fn random_data(
-    uri: Uri,
+    OriginalUri(uri): OriginalUri,
     TypedHeader(host): TypedHeader<headers::Host>,
     referer: Option<TypedHeader<headers::Referer>>,
     NoteContent(content): NoteContent,
