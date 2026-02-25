@@ -34,10 +34,6 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
                 port = args.next().map(|p| p.parse::<u16>()).transpose()?;
             }
             "--help" | "-h" => {
-                println!(
-                    "usage: {} [options]\n",
-                    env::args().next().unwrap_or("app".to_string())
-                );
                 println!("options:");
                 println!("  -h, --help");
                 println!("  -p, --port <PORT>");
@@ -342,7 +338,7 @@ async fn storage(
     let mut tx = pool.begin().await?;
 
     // write db info
-    let filename = field.file_name().unwrap_or("unknown");
+    let filename = field.file_name().filter(|&s| s != "-").unwrap_or("unknown");
     let file = File::write_in_tx(filename, &mut tx).await?;
 
     // final dir
@@ -594,7 +590,7 @@ impl File {
         let pool = pool().await;
 
         let sql = match column {
-            MultiColum::NameMime => "SELECT token, mime FROM files WHERE id = ?",
+            MultiColum::NameMime => "SELECT name, mime FROM files WHERE id = ?",
         };
 
         sqlx::query_as::<_, (String, String)>(sql)
