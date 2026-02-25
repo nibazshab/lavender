@@ -1,7 +1,7 @@
 use axum::body::{Body, Bytes};
 use axum::extract::multipart::MultipartError;
 use axum::extract::{Multipart, Path};
-use axum::http::{StatusCode, header};
+use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -132,7 +132,7 @@ impl PartialEq<String> for TokenHeader {
 
 #[derive(Serialize)]
 struct Link {
-    url: String,
+    uri: String,
     token: String,
 }
 
@@ -311,6 +311,7 @@ async fn home() -> impl IntoResponse {
 }
 
 async fn storage(
+    uri: Uri,
     TypedHeader(host): TypedHeader<headers::Host>,
     referer: Option<TypedHeader<headers::Referer>>,
     mut multipart: Multipart,
@@ -363,12 +364,19 @@ async fn storage(
 
     println!("{} created", file.id);
 
-    let path = referer
+    let base = referer
         .map(|TypedHeader(r)| r.to_string())
-        .unwrap_or_else(|| format!("{host}/file/"));
+        .map(|s| s.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| {
+            format!(
+                "{}{}",
+                host.to_string().trim_end_matches('/'),
+                uri.path().trim_end_matches('/')
+            )
+        });
 
     let link = Link {
-        url: format!("{path}{}", file.id),
+        uri: format!("{base}/{}", file.id),
         token: file.token,
     };
 
