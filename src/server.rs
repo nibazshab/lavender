@@ -315,7 +315,8 @@ async fn home() -> impl IntoResponse {
 }
 
 async fn storage(
-    TypedHeader(referer): TypedHeader<headers::Referer>,
+    TypedHeader(host): TypedHeader<headers::Host>,
+    referer: Option<TypedHeader<headers::Referer>>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, Error> {
     // received
@@ -366,8 +367,12 @@ async fn storage(
 
     println!("{} created", file.id);
 
+    let path = referer
+        .map(|TypedHeader(r)| r.to_string())
+        .unwrap_or_else(|| format!("{host}/file/"));
+
     let link = Link {
-        url: format!("{referer}/{}", file.id),
+        url: format!("{path}{}", file.id),
         token: file.token,
     };
 

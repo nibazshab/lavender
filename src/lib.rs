@@ -181,7 +181,8 @@ async fn update_data(
 }
 
 async fn random_data(
-    TypedHeader(referer): TypedHeader<headers::Referer>,
+    TypedHeader(host): TypedHeader<headers::Host>,
+    referer: Option<TypedHeader<headers::Referer>>,
     NoteContent(content): NoteContent,
 ) -> Result<impl IntoResponse, Error> {
     let id = rand_string(5);
@@ -192,7 +193,11 @@ async fn random_data(
 
     note.write().await?;
 
-    Ok((StatusCode::OK, format!("{referer}/d/{id}")))
+    let path = referer
+        .map(|TypedHeader(r)| r.to_string())
+        .unwrap_or_else(|| host.to_string());
+
+    Ok((StatusCode::OK, format!("{path}/d/{id}")))
 }
 
 async fn fallback(uri: Uri) -> impl IntoResponse {

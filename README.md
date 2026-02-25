@@ -20,7 +20,7 @@ api
 - `/` - post
 - `/d/xx` - get
 - `/file/` - get/post
-- `/file/x` - get/delete
+- `/file/xx` - get/delete
 
 ```sh
 # POST
