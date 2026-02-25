@@ -22,7 +22,7 @@ jobs:
 
       - run: |
           cargo build --verbose --release --no-default-features --features server
-          install target/release/srv ./webnote
+          install target/release/api ./webnote
 
       - run: |
           mkdir dist
