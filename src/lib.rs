@@ -1,11 +1,10 @@
 use askama::Template;
+use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request};
-use axum::http::Uri;
+use axum::http::{StatusCode, Uri, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Router, routing::get};
 use axum_extra::{TypedHeader, headers};
-use hyper::body::Bytes;
-use hyper::{StatusCode, header};
 use rand::distr::Alphanumeric;
 use rand::{RngExt, rng};
 use rust_embed::RustEmbed;
@@ -182,7 +181,7 @@ async fn update_data(
 }
 
 async fn random_data(
-    TypedHeader(host): TypedHeader<headers::Host>,
+    TypedHeader(referer): TypedHeader<headers::Referer>,
     NoteContent(content): NoteContent,
 ) -> Result<impl IntoResponse, Error> {
     let id = rand_string(5);
@@ -193,7 +192,7 @@ async fn random_data(
 
     note.write().await?;
 
-    Ok((StatusCode::OK, format!("{host}/d/{id}")))
+    Ok((StatusCode::OK, format!("{referer}/d/{id}")))
 }
 
 async fn fallback(uri: Uri) -> impl IntoResponse {

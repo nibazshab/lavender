@@ -1,13 +1,12 @@
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::multipart::MultipartError;
 use axum::extract::{Multipart, Path};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use axum_extra::headers::{Header, HeaderName, HeaderValue};
-use axum_extra::{TypedHeader, headers};
-use hyper::body::Bytes;
+use axum_extra::TypedHeader;
+use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
 use rand::distr::Alphanumeric;
 use rand::{RngExt, rng};
 use rust_embed::RustEmbed;
@@ -15,11 +14,10 @@ use serde::Serialize;
 use sqlx::{Decode, Sqlite, SqlitePool, Transaction, Type};
 use std::borrow::Cow;
 use std::cmp::PartialEq;
-use std::env;
 use std::fmt::Write;
 use std::net::SocketAddr;
 use std::sync::LazyLock;
-use std::{fs, path};
+use std::{env, fs, path};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
@@ -104,22 +102,6 @@ struct File {
     token: String,
 }
 
-#[derive(Serialize)]
-struct Link {
-    url: String,
-    token: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Column {
-    Token,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum MultiColum {
-    NameMime,
-}
-
 #[derive(Debug)]
 struct TokenHeader(String);
 
@@ -150,6 +132,22 @@ impl PartialEq<String> for TokenHeader {
     fn eq(&self, other: &String) -> bool {
         self.0 == *other
     }
+}
+
+#[derive(Serialize)]
+struct Link {
+    url: String,
+    token: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Column {
+    Token,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MultiColum {
+    NameMime,
 }
 
 enum Error {
@@ -317,7 +315,7 @@ async fn home() -> impl IntoResponse {
 }
 
 async fn storage(
-    TypedHeader(host): TypedHeader<headers::Host>,
+    TypedHeader(referer): TypedHeader<headers::Referer>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, Error> {
     // received
@@ -369,7 +367,7 @@ async fn storage(
     println!("{} created", file.id);
 
     let link = Link {
-        url: format!("{host}/file/{}", file.id),
+        url: format!("{referer}/{}", file.id),
         token: file.token,
     };
 
@@ -408,12 +406,12 @@ async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
 
 async fn remove(
     Path(id): Path<String>,
-    TypedHeader(input): TypedHeader<TokenHeader>,
+    TypedHeader(token): TypedHeader<TokenHeader>,
 ) -> Result<impl IntoResponse, Error> {
     let key = hash(&id);
     let recorded = File::read_column::<String>(Column::Token, &id).await?;
 
-    if input != recorded {
+    if token != recorded {
         return Err(Error::Forbidden);
     }
 
@@ -502,9 +500,8 @@ fn guess_mime(filename: &str) -> &'static str {
 }
 
 fn path_by(key: u32) -> path::PathBuf {
-    let with_hex = format!("{key:016x}");
-    let dir = &with_hex[0..2];
-    let filename = &with_hex[2..];
+    let hex = format!("{key:08x}");
+    let (dir, filename) = hex.split_at(2);
 
     ATTACHMENT_PATH.join(dir).join(filename)
 }
