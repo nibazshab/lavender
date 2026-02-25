@@ -1,7 +1,7 @@
 use axum::body::{Body, Bytes};
 use axum::extract::multipart::MultipartError;
-use axum::extract::{Multipart, OriginalUri, Path};
-use axum::http::{StatusCode, header};
+use axum::extract::{Multipart, Path};
+use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -311,7 +311,7 @@ async fn home() -> impl IntoResponse {
 }
 
 async fn storage(
-    OriginalUri(uri): OriginalUri,
+    uri: Uri,
     TypedHeader(host): TypedHeader<headers::Host>,
     referer: Option<TypedHeader<headers::Referer>>,
     mut multipart: Multipart,
