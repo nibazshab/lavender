@@ -362,8 +362,8 @@ async fn storage(
 
     println!("{} created", file.id);
 
-    let base = match &*BASE_URL {
-        Some(base_url) => base_url.trim_end_matches('/').to_string(),
+    let base = match BASE_URL.as_deref() {
+        Some(base_url) => base_url.trim_end_matches('/').to_string() + "/file",
         None => referer
             .map(|TypedHeader(r)| r.to_string())
             .map(|s| s.trim_end_matches('/').to_string())
