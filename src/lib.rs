@@ -146,14 +146,12 @@ async fn assets(Path(file): Path<String>) -> impl IntoResponse {
                 Cow::Owned(vec) => Bytes::from(vec),
             };
 
-            (
-                [
-                    (header::CONTENT_TYPE, content_type),
-                    (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
-                ],
-                bytes,
-            )
-                .into_response()
+            let headers = [
+                (header::CONTENT_TYPE, content_type),
+                (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
+            ];
+
+            (headers, bytes).into_response()
         }
 
         None => StatusCode::NOT_FOUND.into_response(),

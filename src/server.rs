@@ -401,11 +401,10 @@ async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
     let stream = tokio_util::io::ReaderStream::new(obj);
     let body = Body::from_stream(stream);
 
-    let filename = escape(&filename);
     let headers = [
         (
             header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{filename}\""),
+            format!("attachment; filename=\"{}\"", escape(&filename)),
         ),
         (header::CONTENT_TYPE, mime),
     ];
@@ -447,14 +446,12 @@ fn file_assets(file: &str) -> Response {
                 Cow::Owned(vec) => Bytes::from(vec),
             };
 
-            (
-                [
-                    (header::CONTENT_TYPE, guess_mime(file)),
-                    (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
-                ],
-                bytes,
-            )
-                .into_response()
+            let headers = [
+                (header::CONTENT_TYPE, guess_mime(file)),
+                (header::CACHE_CONTROL, "public, max-age=15552000"), // 60 * 60 * 24 * 30 * 6, 6 months
+            ];
+
+            (headers, bytes).into_response()
         }
 
         None => StatusCode::NOT_FOUND.into_response(),
