@@ -198,8 +198,7 @@ async fn random_data(
     let base = match &*BASE_URL {
         Some(base_url) => base_url.trim_end_matches('/').to_string(),
         None => referer
-            .map(|TypedHeader(r)| r.to_string())
-            .map(|s| s.trim_end_matches('/').to_string())
+            .map(|TypedHeader(r)| r.to_string().trim_end_matches('/').to_string())
             .unwrap_or_else(|| {
                 format!(
                     "{}{}",
@@ -209,7 +208,7 @@ async fn random_data(
             }),
     };
 
-    Ok((StatusCode::OK, format!("{base}/d/{id}")))
+    Ok((StatusCode::OK, format!("{base}/d/{id}\n")))
 }
 
 async fn fallback(uri: Uri) -> impl IntoResponse {
