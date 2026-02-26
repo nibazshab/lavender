@@ -130,7 +130,7 @@ impl PartialEq<String> for TokenHeader {
 
 #[derive(Serialize)]
 struct Link {
-    uri: String,
+    url: String,
     token: String,
 }
 
@@ -376,7 +376,7 @@ async fn storage(
     };
 
     let link = Link {
-        uri: format!("{base}/{}", file.id),
+        url: format!("{base}/{}", file.id),
         token: file.token,
     };
 

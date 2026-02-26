@@ -47,7 +47,7 @@ b_a.addEventListener("click", function () {
     })
         .then(response => response.json())
         .then(response => {
-            link.textContent = response.uri;
+            link.textContent = response.url;
             token.textContent = response.token;
         });
 });
