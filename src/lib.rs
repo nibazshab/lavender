@@ -133,12 +133,10 @@ async fn raw(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
 async fn assets(Path(file): Path<String>) -> impl IntoResponse {
     match Assets::get(&file) {
         Some(obj) => {
-            let content_type = if file.ends_with(".js") {
-                "text/javascript"
-            } else if file.ends_with(".css") {
-                "text/css"
-            } else {
-                "application/octet-stream"
+            let content_type = match () {
+                _ if file.ends_with(".js") => "text/javascript",
+                _ if file.ends_with(".css") => "text/css",
+                _ => "application/octet-stream",
             };
 
             let bytes = match obj.data {

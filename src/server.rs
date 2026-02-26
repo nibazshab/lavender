@@ -512,16 +512,14 @@ fn path_by(key: u32) -> path::PathBuf {
     ATTACHMENT_PATH.join(dir).join(filename)
 }
 
-fn escape(str: &str) -> Cow<'_, str> {
-    if !str
-        .chars()
-        .any(|c| matches!(c, '"' | '\\' | '/' | ':' | '|' | '<' | '>' | '?' | '*'))
-    {
-        return Cow::Borrowed(str);
+fn escape(input: &str) -> Cow<'_, str> {
+    if !input.contains(['"', '\\', '/', ':', '|', '<', '>', '?', '*']) {
+        return Cow::Borrowed(input);
     }
 
-    let mut s = String::with_capacity(str.len() + 20);
-    for c in str.chars() {
+    let mut s = String::with_capacity(input.len() + 10);
+
+    for c in input.chars() {
         match c {
             '"' => s.push_str("%22"),
             '\\' => s.push_str("%5C"),
