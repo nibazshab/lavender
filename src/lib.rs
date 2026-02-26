@@ -10,6 +10,7 @@ use rand::{RngExt, rng};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::sync::LazyLock;
 use tokio::sync::OnceCell;
 use tower_http::cors::CorsLayer;
 
@@ -194,16 +195,19 @@ async fn random_data(
 
     note.write().await?;
 
-    let base = referer
-        .map(|TypedHeader(r)| r.to_string())
-        .map(|s| s.trim_end_matches('/').to_string())
-        .unwrap_or_else(|| {
-            format!(
-                "{}{}",
-                host.to_string().trim_end_matches('/'),
-                uri.path().trim_end_matches('/')
-            )
-        });
+    let base = match &*BASE_URL {
+        Some(base_url) => base_url.trim_end_matches('/').to_string(),
+        None => referer
+            .map(|TypedHeader(r)| r.to_string())
+            .map(|s| s.trim_end_matches('/').to_string())
+            .unwrap_or_else(|| {
+                format!(
+                    "{}{}",
+                    host.to_string().trim_end_matches('/'),
+                    uri.path().trim_end_matches('/')
+                )
+            }),
+    };
 
     Ok((StatusCode::OK, format!("{base}/d/{id}")))
 }
@@ -344,6 +348,8 @@ pub fn router() -> Router {
         .layer(DefaultBodyLimit::max(5 << 20)) // 5 MB
         .layer(CorsLayer::permissive())
 }
+
+pub static BASE_URL: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("BASE_URL").ok());
 
 #[cfg(feature = "serverless")]
 pub mod vercel;

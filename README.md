@@ -11,6 +11,7 @@ api
 env
 
 - `DATABASE_URL` - 数据库连接字符串
+- `BASE_URL` - 网站 URL
 
 ### 2. server 正常版本
 
@@ -38,6 +39,7 @@ curl -X DELETE 127.0.0.1:8080/file/test -H 'token: 2A9B3F692B1715A6'
 env
 
 - `PORT` - 监听端口号
+- `BASE_URL` - 网站 URL
 
 Linux systemd 自启动配置文件示例
 
@@ -45,7 +47,7 @@ Linux systemd 自启动配置文件示例
 [Unit]
 Description=webnote service
 [Service]
-Environment=PORT=10003
+Environment=PORT=10003 BASE_URL=https://www.example.com
 ExecStart=/usr/local/webnote/webnote
 Restart=on-failure
 [Install]

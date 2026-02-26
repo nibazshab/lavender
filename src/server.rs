@@ -21,6 +21,7 @@ use std::{env, fs, path};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
+use crate::BASE_URL;
 use crate::pool;
 use crate::router as main_router;
 
@@ -79,13 +80,10 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 static ATTACHMENT_PATH: LazyLock<path::PathBuf> = LazyLock::new(|| {
-    let dir = {
-        let mut path = env::current_exe().unwrap();
-        path.pop();
-        path.display().to_string()
-    };
-
-    path::Path::new(&dir).join("attachment")
+    let mut path = env::current_exe().unwrap();
+    path.pop();
+    path.push("attachment");
+    path
 });
 
 #[derive(RustEmbed)]
@@ -364,16 +362,19 @@ async fn storage(
 
     println!("{} created", file.id);
 
-    let base = referer
-        .map(|TypedHeader(r)| r.to_string())
-        .map(|s| s.trim_end_matches('/').to_string())
-        .unwrap_or_else(|| {
-            format!(
-                "{}{}",
-                host.to_string().trim_end_matches('/'),
-                uri.path().trim_end_matches('/')
-            )
-        });
+    let base = match &*BASE_URL {
+        Some(base_url) => base_url.trim_end_matches('/').to_string(),
+        None => referer
+            .map(|TypedHeader(r)| r.to_string())
+            .map(|s| s.trim_end_matches('/').to_string())
+            .unwrap_or_else(|| {
+                format!(
+                    "{}{}",
+                    host.to_string().trim_end_matches('/'),
+                    uri.path().trim_end_matches('/')
+                )
+            }),
+    };
 
     let link = Link {
         uri: format!("{base}/{}", file.id),
