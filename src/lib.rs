@@ -14,6 +14,8 @@ use std::sync::LazyLock;
 use tokio::sync::OnceCell;
 use tower_http::cors::CorsLayer;
 
+static BASE_URL: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("BASE_URL").ok());
+
 #[derive(RustEmbed)]
 #[folder = "templates/assets/"]
 struct Assets;
@@ -343,8 +345,6 @@ pub fn router() -> Router {
         .layer(DefaultBodyLimit::max(5 << 20)) // 5 MB
         .layer(CorsLayer::permissive())
 }
-
-pub static BASE_URL: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("BASE_URL").ok());
 
 #[cfg(feature = "serverless")]
 pub mod vercel;

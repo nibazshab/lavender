@@ -21,7 +21,6 @@ use std::{env, fs, path};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
-use crate::BASE_URL;
 use crate::pool;
 use crate::router as main_router;
 
@@ -78,6 +77,8 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+static BASE_URL: LazyLock<Option<String>> = LazyLock::new(|| env::var("BASE_URL").ok());
 
 static ATTACHMENT_PATH: LazyLock<path::PathBuf> = LazyLock::new(|| {
     let mut path = env::current_exe().unwrap();
@@ -282,27 +283,6 @@ async fn close() {
     }
 }
 
-async fn init_file_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    const SCHEMA: &str = r#"
-       CREATE TABLE IF NOT EXISTS files (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            token TEXT,
-            mime TEXT
-        );
-        "#;
-
-    sqlx::query(SCHEMA).execute(pool).await?;
-
-    Ok(())
-}
-
-fn file_router() -> Router {
-    Router::new()
-        .route("/file/", get(home).post(storage))
-        .route("/file/{id}", get(download).delete(remove))
-}
-
 async fn home() -> impl IntoResponse {
     let id = "index.html";
     file_assets(id)
@@ -384,7 +364,7 @@ async fn storage(
 }
 
 async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
-    if id == "script.js" || id == "style.css" || id == "yy.js" {
+    if matches!(id.as_str(), "script.js" | "style.css" | "yy.js") {
         return Ok(file_assets(&id));
     }
 
@@ -601,4 +581,25 @@ impl File {
             .fetch_one(pool)
             .await
     }
+}
+
+async fn init_file_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    const SCHEMA: &str = r#"
+       CREATE TABLE IF NOT EXISTS files (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            token TEXT,
+            mime TEXT
+        );
+        "#;
+
+    sqlx::query(SCHEMA).execute(pool).await?;
+
+    Ok(())
+}
+
+fn file_router() -> Router {
+    Router::new()
+        .route("/file/", get(home).post(storage))
+        .route("/file/{id}", get(download).delete(remove))
 }

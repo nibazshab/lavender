@@ -7,17 +7,11 @@ use app::server::app;
 #[cfg(feature = "serverless")]
 #[tokio::main]
 async fn main() -> Result<(), vercel_runtime::Error> {
-    let app = app();
-
-    vercel_runtime::run(app).await
+    app().await
 }
 
 #[cfg(feature = "server")]
 #[tokio::main]
-async fn main() {
-    if let Err(e) = app().await {
-        eprintln!("{e}");
-
-        std::process::exit(1);
-    }
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    app().await
 }

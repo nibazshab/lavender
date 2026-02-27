@@ -4,10 +4,12 @@ use vercel_runtime::axum::{VercelLayer, VercelService};
 
 use crate::router;
 
-pub fn app() -> VercelService<Router> {
+pub async fn app() -> Result<(), vercel_runtime::Error> {
     let router = router();
 
-    ServiceBuilder::new()
+    let app = ServiceBuilder::new()
         .layer(VercelLayer::new())
-        .service(router)
+        .service(router);
+
+    vercel_runtime::run(app).await
 }
