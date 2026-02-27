@@ -224,8 +224,8 @@ impl Note {
         let pool = pool().await;
 
         const QUERY: &str = r#"
-            INSERT INTO notes (id, content) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET
-                content = excluded.content
+            INSERT INTO notes (id, content) VALUES ($1, $2) ON CONFLICT(id) DO
+            UPDATE SET content = excluded.content
             "#;
 
         sqlx::query(QUERY)
