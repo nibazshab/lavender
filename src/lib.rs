@@ -210,7 +210,10 @@ async fn random_data(
 }
 
 async fn fallback(uri: Uri) -> impl IntoResponse {
-    format!("Axum fallback for path {}", uri.path())
+    (
+        StatusCode::NOT_FOUND,
+        format!("fallback for path {}", uri.path()),
+    )
 }
 
 fn rand_string(n: usize) -> String {
