@@ -1,10 +1,11 @@
 use axum::body::{Body, Bytes};
 use axum::extract::multipart::MultipartError;
-use axum::extract::{DefaultBodyLimit, Multipart, Path};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Request};
 use axum::http::{StatusCode, Uri, header};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::{Json, Router, middleware};
 use axum_extra::TypedHeader;
 use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
 use rand::distr::Alphanumeric;
@@ -58,6 +59,7 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
 
     let router = main_router()
         .merge(file_router())
+        .layer(middleware::from_fn(log_middleware))
         .into_make_service_with_connect_info::<SocketAddr>();
 
     let attachment = ATTACHMENT_PATH.as_path();
@@ -296,6 +298,19 @@ async fn close() {
     }
 }
 
+async fn log_middleware(req: Request, next: Next) -> Response {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+
+    println!("Request: {} {}", method, path);
+
+    let response = next.run(req).await;
+
+    println!("Status: {}", response.status());
+
+    response
+}
+
 async fn home() -> impl IntoResponse {
     let id = "index.html";
     file_assets(id)
@@ -351,7 +366,7 @@ async fn storage(
     // db commit
     tx.commit().await?;
 
-    println!("storage: {} -> {filename}", file.id);
+    println!("storage: {} -> {key}: {filename}", file.id);
 
     let base = match BASE_URL.as_deref() {
         Some(base_url) => base_url.trim_end_matches('/').to_string() + "/file",
@@ -419,7 +434,7 @@ async fn remove(
 
     tx.commit().await?;
 
-    println!("remove: {id}");
+    println!("remove: {id} -> {key}");
 
     Ok(StatusCode::OK)
 }
