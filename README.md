@@ -45,10 +45,10 @@ Linux systemd 自启动配置文件示例
 
 ```ini
 [Unit]
-Description=webnote service
+Description=lavender service
 [Service]
 Environment=PORT=10003 BASE_URL=https://www.example.com
-ExecStart=/usr/local/webnote/webnote
+ExecStart=/usr/local/lavender/lavender
 Restart=on-failure
 [Install]
 WantedBy=multi-user.target
@@ -82,5 +82,3 @@ cargo build --verbose --release --no-default-features --features server
 ### 3. 题外话
 
 本质上这只是一个练手项目，用来学习用的
-
-发展经过 php/mysql -> go/file -> go/sqlite -> rust/sqlite -> serverless/rust/pgsql

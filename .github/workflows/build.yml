@@ -22,11 +22,11 @@ jobs:
 
       - run: |
           cargo build --verbose --release --no-default-features --features server
-          install target/release/api ./webnote
+          install target/release/api ./lavender
 
       - run: |
           mkdir dist
-          tar czf dist/webnote-linux-amd64.tar.gz webnote
+          tar czf dist/lavender-linux-amd64.tar.gz lavender
 
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
