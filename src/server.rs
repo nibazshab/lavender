@@ -67,7 +67,7 @@ pub async fn app() -> Result<(), Box<dyn std::error::Error>> {
     let pool = pool().await;
     init_file_schema(pool).await?;
 
-    println!("Server running on {addr}");
+    println!("app running on {addr}");
 
     axum::serve(listener, router)
         .with_graceful_shutdown(close())
@@ -152,6 +152,10 @@ enum Error {
     Forbidden,
     NotFound,
     Unpredictable,
+    Io2 {
+        e1: std::io::Error,
+        e2: std::io::Error,
+    },
 }
 
 impl IntoResponse for Error {
@@ -176,6 +180,14 @@ impl IntoResponse for Error {
             Error::NotFound => (StatusCode::NOT_FOUND, "Not Found".to_string()),
             Error::Unpredictable => {
                 eprintln!("Unpredictable Error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal Server Error".to_string(),
+                )
+            }
+            Error::Io2 { e1, e2 } => {
+                eprintln!("{e1}");
+                eprintln!("{e2}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal Server Error".to_string(),
@@ -327,20 +339,18 @@ async fn storage(
     tokio::fs::create_dir_all(parent).await?;
 
     // move temp/data to final/data
-    if let Err(e) = tokio::fs::rename(&tmp, &fin).await {
-        eprintln!("{e}");
-
-        // db rollback, delete temp/data
-        if let Err(e) = tokio::fs::remove_file(&tmp).await {
-            eprintln!("{e}");
+    if let Err(e1) = tokio::fs::rename(&tmp, &fin).await {
+        // delete temp/data
+        if let Err(e2) = tokio::fs::remove_file(&tmp).await {
+            return Err(Error::Io2 { e1, e2 });
         }
-        return Err(e.into());
+        return Err(Error::Io(e1));
     }
 
     // db commit
     tx.commit().await?;
 
-    println!("{} created", file.id);
+    println!("storage: {} -> {filename}", file.id);
 
     let base = match BASE_URL.as_deref() {
         Some(base_url) => base_url.trim_end_matches('/').to_string() + "/file",
@@ -372,11 +382,6 @@ async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
     let (filename, mime) = File::read_multi_column(MultiColum::NameMime, &id).await?;
 
     let dest = path_by(key);
-    let metadata = tokio::fs::metadata(&dest).await?;
-    if !metadata.is_file() {
-        return Err(Error::Unpredictable);
-    }
-
     let obj = tokio::fs::File::open(dest).await?;
     let stream = tokio_util::io::ReaderStream::new(obj);
     let body = Body::from_stream(stream);
@@ -413,7 +418,7 @@ async fn remove(
 
     tx.commit().await?;
 
-    println!("{id} removed");
+    println!("remove: {id}");
 
     Ok(StatusCode::OK)
 }

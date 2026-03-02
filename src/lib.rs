@@ -193,7 +193,7 @@ async fn random_data(
 
     note.write().await?;
 
-    let base = match &*BASE_URL {
+    let base = match BASE_URL.as_deref() {
         Some(base_url) => base_url.trim_end_matches('/').to_string(),
         None => referer
             .map(|TypedHeader(r)| r.to_string().trim_end_matches('/').to_string())
