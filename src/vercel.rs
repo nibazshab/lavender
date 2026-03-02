@@ -1,6 +1,5 @@
-use axum::Router;
 use tower::ServiceBuilder;
-use vercel_runtime::axum::{VercelLayer, VercelService};
+use vercel_runtime::axum::VercelLayer;
 
 use crate::router;
 
