@@ -1,6 +1,6 @@
 use axum::body::{Body, Bytes};
 use axum::extract::multipart::MultipartError;
-use axum::extract::{Multipart, Path};
+use axum::extract::{DefaultBodyLimit, Multipart, Path};
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use std::{env, fs, path};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
 
 use crate::pool;
 use crate::router as main_router;
@@ -607,4 +608,6 @@ fn file_router() -> Router {
     Router::new()
         .route("/file/", get(home).post(storage))
         .route("/file/{id}", get(download).delete(remove))
+        .layer(DefaultBodyLimit::max(30 << 20)) // 30 MB
+        .layer(CorsLayer::permissive())
 }
