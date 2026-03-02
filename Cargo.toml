@@ -22,6 +22,7 @@ sqlx = { version = "0.8", features = [
 serde_urlencoded = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 tokio-util = { version = "0.7", features = ["io"] }
+tempfile = "3"
 
 [features]
 default = ["serverless"]

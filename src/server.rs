@@ -19,7 +19,8 @@ use std::fmt::Write;
 use std::net::SocketAddr;
 use std::sync::LazyLock;
 use std::{env, fs, path};
-use tokio::io::AsyncWriteExt;
+use tempfile::NamedTempFile;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
@@ -155,10 +156,10 @@ enum Error {
     Forbidden,
     NotFound,
     Unpredictable,
-    Io2 {
-        e1: std::io::Error,
-        e2: std::io::Error,
-    },
+    // Io2 {
+    //     e1: std::io::Error,
+    //     e2: std::io::Error,
+    // },
 }
 
 impl IntoResponse for Error {
@@ -187,15 +188,14 @@ impl IntoResponse for Error {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal Server Error".to_string(),
                 )
-            }
-            Error::Io2 { e1, e2 } => {
-                eprintln!("{e1}");
-                eprintln!("{e2}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal Server Error".to_string(),
-                )
-            }
+            } // Error::Io2 { e1, e2 } => {
+              //     eprintln!("{e1}");
+              //     eprintln!("{e2}");
+              //     (
+              //         StatusCode::INTERNAL_SERVER_ERROR,
+              //         "Internal Server Error".to_string(),
+              //     )
+              // }
         };
 
         (status, message).into_response()
@@ -302,7 +302,7 @@ async fn log_middleware(req: Request, next: Next) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    println!("Request: {} {}", method, path);
+    println!("Request: {method} {path}");
 
     let response = next.run(req).await;
 
@@ -322,48 +322,37 @@ async fn storage(
     referer: Option<TypedHeader<headers::Referer>>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, Error> {
-    // received
     let mut field = multipart
         .next_field()
         .await?
         .ok_or(Error::BadRequest("Invalid input".to_string()))?;
 
-    // temp dir
     let _tmp = ATTACHMENT_PATH.join("_tmp");
-    let tmp = _tmp.join(rand::random::<u32>().to_string());
     tokio::fs::create_dir_all(&_tmp).await?;
 
-    // save temp/data
-    let mut dest = tokio::fs::File::create(&tmp).await?;
-    while let Some(chunk) = field.chunk().await? {
-        dest.write_all(&chunk).await?;
-    }
-    dest.sync_all().await?;
+    let tmp = NamedTempFile::new_in(&_tmp)?;
+    let obj = tmp.reopen()?;
+    let dest = tokio::fs::File::from_std(obj);
+    let mut writer = BufWriter::with_capacity(64 * 1024, dest);
 
-    // db transaction
+    while let Some(chunk) = field.chunk().await? {
+        writer.write_all(&chunk).await?;
+    }
+    writer.flush().await?;
+
     let pool = pool().await;
     let mut tx = pool.begin().await?;
 
-    // write db info
     let filename = field.file_name().filter(|&s| s != "-").unwrap_or("unknown");
     let file = File::write_in_tx(filename, &mut tx).await?;
 
-    // final dir
     let key = hash(&file.id);
     let fin = path_by(key);
     let parent = fin.parent().ok_or(Error::Unpredictable)?;
     tokio::fs::create_dir_all(parent).await?;
 
-    // move temp/data to final/data
-    if let Err(e1) = tokio::fs::rename(&tmp, &fin).await {
-        // delete temp/data
-        if let Err(e2) = tokio::fs::remove_file(&tmp).await {
-            return Err(Error::Io2 { e1, e2 });
-        }
-        return Err(Error::Io(e1));
-    }
+    tmp.persist(&fin).map_err(|e| Error::Io(e.error))?;
 
-    // db commit
     tx.commit().await?;
 
     println!("storage: {} -> {key}: {filename}", file.id);
@@ -397,9 +386,12 @@ async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
     let key = hash(&id);
     let (filename, mime) = File::read_multi_column(MultiColum::NameMime, &id).await?;
 
-    let dest = path_by(key);
-    let obj = tokio::fs::File::open(dest).await?;
-    let stream = tokio_util::io::ReaderStream::new(obj);
+    let obj = path_by(key);
+    let dest = tokio::fs::File::open(&obj).await?;
+    let metadata = dest.metadata().await?;
+    let size = metadata.len();
+
+    let stream = tokio_util::io::ReaderStream::new(dest);
     let body = Body::from_stream(stream);
 
     let headers = [
@@ -408,6 +400,7 @@ async fn download(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
             format!("attachment; filename=\"{}\"", escape(&filename)),
         ),
         (header::CONTENT_TYPE, mime),
+        (header::CONTENT_LENGTH, size.to_string()),
     ];
 
     Ok((headers, body).into_response())
