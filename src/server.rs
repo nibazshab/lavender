@@ -355,7 +355,7 @@ async fn storage(
 
     tx.commit().await?;
 
-    println!("storage: {} -> {key}: {filename}", file.id);
+    println!("storage: {} -> {key:08x}: {filename}", file.id);
 
     let base = match BASE_URL.as_deref() {
         Some(base_url) => base_url.trim_end_matches('/').to_string() + "/file",
@@ -427,7 +427,7 @@ async fn remove(
 
     tx.commit().await?;
 
-    println!("remove: {id} -> {key}");
+    println!("remove: {id} -> {key:08x}");
 
     Ok(StatusCode::OK)
 }
