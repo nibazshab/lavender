@@ -8,8 +8,8 @@ con.addEventListener('input', () => {
 
         fetch(location.href, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
-            body: new URLSearchParams({ t: con.value })
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: con.value
         }).then(r => r.ok && (tmp = con.value));
     }, 500);
 });

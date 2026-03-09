@@ -27,19 +27,6 @@ api
 - `/file/` - get/post
 - `/file/xx` - get/delete
 
-```sh
-# POST
-curl -d t="text" 127.0.0.1:8080/test
-curl -d "text" 127.0.0.1:8080
-cat /etc/hosts | curl --data-binary @- 127.0.0.1:8080/test
-cat /etc/hosts | curl -F f=@- 127.0.0.1:8080
-
-# POST
-curl -F f=@a.jpg 127.0.0.1:8080/file/
-# DELETE
-curl -X DELETE 127.0.0.1:8080/file/test -H 'token: 2A9B3F692B1715A6'
-```
-
 env
 
 - `PORT` - 监听端口号

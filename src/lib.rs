@@ -8,7 +8,6 @@ use axum_extra::{TypedHeader, headers};
 use rand::distr::Alphanumeric;
 use rand::{RngExt, rng};
 use rust_embed::RustEmbed;
-use serde::Deserialize;
 use std::borrow::Cow;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
@@ -27,11 +26,6 @@ struct Note {
     content: String,
 }
 
-#[derive(Deserialize)]
-struct NoteForm {
-    t: String,
-}
-
 struct NoteContent(String);
 
 impl<S> FromRequest<S> for NoteContent
@@ -41,16 +35,61 @@ where
     type Rejection = Error;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let bytes = Bytes::from_request(req, state)
-            .await
-            .map_err(|_| Error::BadRequest("Failed to read body".into()))?;
+        let content_type = req
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
 
-        let con = serde_urlencoded::from_bytes::<NoteForm>(&bytes)
-            .map(|f| f.t)
-            .or_else(|_| std::str::from_utf8(&bytes).map(|s| s.to_string()))
-            .map_err(|_| Error::BadRequest("Invalid input".into()))?;
+        async fn read_multipart<S>(req: Request, state: &S) -> Result<NoteContent, Error>
+        where
+            S: Send + Sync,
+        {
+            let mut multipart = axum::extract::Multipart::from_request(req, state)
+                .await
+                .map_err(|_| Error::BadRequest("Invalid multipart body".into()))?;
 
-        Ok(NoteContent(con))
+            let mut result = String::new();
+
+            while let Some(field) = multipart
+                .next_field()
+                .await
+                .map_err(|_| Error::BadRequest("Invalid multipart field".into()))?
+            {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|_| Error::BadRequest("Invalid multipart data".into()))?;
+
+                if !result.is_empty() {
+                    result.push('\n');
+                }
+
+                result.push_str(&text);
+            }
+
+            Ok(NoteContent(result))
+        }
+
+        async fn read_body<S>(req: Request, state: &S) -> Result<NoteContent, Error>
+        where
+            S: Send + Sync,
+        {
+            let bytes = Bytes::from_request(req, state)
+                .await
+                .map_err(|_| Error::BadRequest("Failed to read body".into()))?;
+
+            let text = str::from_utf8(&bytes)
+                .map_err(|_| Error::BadRequest("Invalid UTF-8 body".into()))?;
+
+            Ok(NoteContent(text.to_string()))
+        }
+
+        if content_type.starts_with("multipart/form-data") {
+            return read_multipart(req, state).await;
+        }
+
+        read_body(req, state).await
     }
 }
 
@@ -345,7 +384,7 @@ pub fn router() -> Router {
         .route("/assets/{file}", get(assets))
         .route("/favicon.ico", get(favicon))
         .fallback(fallback)
-        .layer(DefaultBodyLimit::max(5 << 20)) // 5 MB
+        .layer(DefaultBodyLimit::max(1 << 20)) // 1 MB
         .layer(CorsLayer::permissive())
 }
 
