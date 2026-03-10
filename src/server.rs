@@ -156,10 +156,6 @@ enum Error {
     Forbidden,
     NotFound,
     Unpredictable,
-    // Io2 {
-    //     e1: std::io::Error,
-    //     e2: std::io::Error,
-    // },
 }
 
 impl IntoResponse for Error {
@@ -188,14 +184,7 @@ impl IntoResponse for Error {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal Server Error".to_string(),
                 )
-            } // Error::Io2 { e1, e2 } => {
-              //     eprintln!("{e1}");
-              //     eprintln!("{e2}");
-              //     (
-              //         StatusCode::INTERNAL_SERVER_ERROR,
-              //         "Internal Server Error".to_string(),
-              //     )
-              // }
+            }
         };
 
         (status, message).into_response()
@@ -280,13 +269,10 @@ async fn close() {
     };
 
     #[cfg(unix)]
-    let terminate = {
-        async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .unwrap()
-                .recv()
-                .await;
-        }
+    let terminate = async {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        signal(SignalKind::terminate()).unwrap().recv().await;
     };
 
     #[cfg(not(unix))]
