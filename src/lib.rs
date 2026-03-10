@@ -1,5 +1,6 @@
 use askama::Template;
 use axum::body::Bytes;
+use axum::extract::Multipart;
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request};
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -45,7 +46,7 @@ where
         where
             S: Send + Sync,
         {
-            let mut multipart = axum::extract::Multipart::from_request(req, state)
+            let mut multipart = Multipart::from_request(req, state)
                 .await
                 .map_err(|_| Error::BadRequest("Invalid multipart body".into()))?;
 
