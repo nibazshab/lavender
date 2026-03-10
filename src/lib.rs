@@ -1,7 +1,6 @@
 use askama::Template;
 use axum::body::Bytes;
-use axum::extract::Multipart;
-use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request};
+use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Request};
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Router, routing::get};
