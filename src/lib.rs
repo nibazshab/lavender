@@ -79,10 +79,29 @@ where
                 .await
                 .map_err(|_| Error::BadRequest("Failed to read body".into()))?;
 
-            let text = str::from_utf8(&bytes)
-                .map_err(|_| Error::BadRequest("Invalid UTF-8 body".into()))?;
+            let (text, _, malformed) = encoding_rs::UTF_8.decode(&bytes);
+            if !malformed {
+                return Ok(NoteContent(text.into_owned()));
+            }
 
-            Ok(NoteContent(text.to_string()))
+            let (text, _, malformed) = encoding_rs::GBK.decode(&bytes);
+            if !malformed {
+                return Ok(NoteContent(text.into_owned()));
+            }
+
+            if bytes.len() % 2 == 0 {
+                let (text, _, malformed) = encoding_rs::UTF_16LE.decode(&bytes);
+                if !malformed {
+                    return Ok(NoteContent(text.into_owned()));
+                }
+
+                let (text, _, malformed) = encoding_rs::UTF_16BE.decode(&bytes);
+                if !malformed {
+                    return Ok(NoteContent(text.into_owned()));
+                }
+            }
+
+            Err(Error::BadRequest("Unsupported character encoding".into()))
         }
 
         if content_type.starts_with("multipart/form-data") {
@@ -379,7 +398,7 @@ pub async fn pool() -> &'static DbPool {
 pub fn router() -> Router {
     Router::new()
         .route("/", get(redirect).post(random_data))
-        .route("/{id}", get(home).post(update_data))
+        .route("/{id}", get(home).post(update_data).put(update_data))
         .route("/d/{id}", get(raw))
         .route("/assets/{file}", get(assets))
         .route("/favicon.ico", get(favicon))

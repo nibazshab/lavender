@@ -6,7 +6,7 @@
 
 api
 
-- `/xx` - get/post
+- `/xx` - get/post/put
 - `/` - post
 - `/d/xx` - get
 
@@ -15,15 +15,12 @@ env
 - `DATABASE_URL` - 数据库连接字符串
 - `BASE_URL` - 网站 URL
 
-### 2. server 正常版本
+### 2. pc server 版本
 
 在 serverless 的基础记事本功能外，额外包含了文件柜功能
 
 api
 
-- `/xx` - get/post
-- `/` - post
-- `/d/xx` - get
 - `/file/` - get/post
 - `/file/xx` - get/delete
 
