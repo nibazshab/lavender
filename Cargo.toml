@@ -21,10 +21,6 @@ sqlx = { version = "0.8", features = [
 tower-http = { version = "0.6", features = ["cors"] }
 encoding_rs = "0.8"
 log = "0.4"
-simple-log = "2.4"
-serde = "1.0.228"
-askama_escape = "0.16.0"
-hex = "0.4.3"
 
 [features]
 default = ["serverless"]

@@ -1,6 +1,5 @@
 pub mod app;
 mod database;
-mod extra;
 
 use askama::Template;
 use axum::body::Bytes;
@@ -43,16 +42,14 @@ impl IntoResponse for Error {
                 StatusCode::BAD_REQUEST.to_string() + msg.as_str(),
             ),
 
-            Error::Template(e) => {
-                log::error!("{e}");
+            Error::Template(_e) => {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     StatusCode::INTERNAL_SERVER_ERROR.to_string(),
                 )
             }
 
-            Error::Sqlx(e) => {
-                log::error!("{e}");
+            Error::Sqlx(_e) => {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     StatusCode::INTERNAL_SERVER_ERROR.to_string(),
@@ -194,6 +191,13 @@ async fn writer(
     Ok(StatusCode::OK)
 }
 
+async fn fallback(uri: Uri) -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        format!("fallback for path {}\n", uri.path()),
+    )
+}
+
 async fn assets(Path(file): Path<String>) -> impl IntoResponse {
     match Assets::get(&file) {
         Some(obj) => {
@@ -237,37 +241,27 @@ async fn favicon() -> impl IntoResponse {
         .into_response()
 }
 
-async fn fallback(uri: Uri) -> impl IntoResponse {
-    (
-        StatusCode::NOT_FOUND,
-        format!("fallback for path {}\n", uri.path()),
-    )
-}
-
 impl Note {
-    async fn write(&self) -> Result<(), Error> {
+    async fn schema() -> Result<(), sqlx::Error> {
         let db = db().await?;
 
-        const SS: &str = r#"
-            INSERT INTO notes (id, content) VALUES ($1, $2) ON CONFLICT(id) DO
-            UPDATE SET content = excluded.content
+        let s = r#"
+            CREATE TABLE IF NOT EXISTS notes (
+                id TEXT PRIMARY KEY,
+                content TEXT
+            );
             "#;
 
-        sqlx::query(SS)
-            .bind(&self.id)
-            .bind(&self.content)
-            .execute(db)
-            .await?;
-
+        sqlx::query(s).execute(db).await?;
         Ok(())
     }
 
     async fn read(id: &str) -> Result<Self, Error> {
         let db = db().await?;
 
-        const SS: &str = "SELECT content FROM notes WHERE id = $1";
+        let s = "SELECT content FROM notes WHERE id = $1";
 
-        let content = sqlx::query_scalar(SS)
+        let content = sqlx::query_scalar(s)
             .bind(id)
             .fetch_optional(db)
             .await?
@@ -278,19 +272,23 @@ impl Note {
             content,
         })
     }
-}
 
-fn router() -> Router {
-    Router::new()
-        .route("/", get(redirect))
-        .route("/{id}", get(reader).post(writer).put(writer))
-        .route("/d/{id}", get(raw))
-        .route("/assets/{file}", get(assets))
-        .route("/favicon.ico", get(favicon))
-        .merge(extra::extra_router())
-        .fallback(fallback)
-        .layer(DefaultBodyLimit::max(3 << 20))
-        .layer(CorsLayer::permissive())
+    async fn write(&self) -> Result<(), Error> {
+        let db = db().await?;
+
+        let s = r#"
+            INSERT INTO notes (id, content) VALUES ($1, $2) ON CONFLICT(id) DO
+            UPDATE SET content = excluded.content
+            "#;
+
+        sqlx::query(s)
+            .bind(&self.id)
+            .bind(&self.content)
+            .execute(db)
+            .await?;
+
+        Ok(())
+    }
 }
 
 fn rand_string(n: usize) -> String {
@@ -301,21 +299,19 @@ fn rand_string(n: usize) -> String {
         .collect()
 }
 
+fn router() -> Router {
+    Router::new()
+        .route("/assets/{file}", get(assets))
+        .route("/favicon.ico", get(favicon))
+        .route("/", get(redirect))
+        .route("/{id}", get(reader).post(writer).put(writer))
+        .route("/d/{id}", get(raw))
+        .fallback(fallback)
+        .layer(DefaultBodyLimit::max(3 << 20))
+        .layer(CorsLayer::permissive())
+}
+
 async fn init() -> Result<(), Box<dyn std::error::Error>> {
-    simple_log::quick!();
-
-    let db = db().await?;
-
-    const SCHEMA: &str = r#"
-        CREATE TABLE IF NOT EXISTS notes (
-            id TEXT PRIMARY KEY,
-            content TEXT
-        );
-        "#;
-
-    sqlx::query(SCHEMA).execute(db).await?;
-
-    extra::extra_init().await?;
-
+    Note::schema().await?;
     Ok(())
 }
