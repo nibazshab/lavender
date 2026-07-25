@@ -42,19 +42,15 @@ impl IntoResponse for Error {
                 StatusCode::BAD_REQUEST.to_string() + msg.as_str(),
             ),
 
-            Error::Template(_e) => {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    StatusCode::INTERNAL_SERVER_ERROR.to_string(),
-                )
-            }
+            Error::Template(_e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::INTERNAL_SERVER_ERROR.to_string(),
+            ),
 
-            Error::Sqlx(_e) => {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    StatusCode::INTERNAL_SERVER_ERROR.to_string(),
-                )
-            }
+            Error::Sqlx(_e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::INTERNAL_SERVER_ERROR.to_string(),
+            ),
         };
 
         (status, message).into_response()
@@ -300,12 +296,15 @@ fn rand_string(n: usize) -> String {
 }
 
 fn router() -> Router {
-    Router::new()
+    let ass = Router::new()
         .route("/assets/{file}", get(assets))
-        .route("/favicon.ico", get(favicon))
+        .route("/favicon.ico", get(favicon));
+
+    Router::new()
         .route("/", get(redirect))
         .route("/{id}", get(reader).post(writer).put(writer))
         .route("/d/{id}", get(raw))
+        .merge(ass)
         .fallback(fallback)
         .layer(DefaultBodyLimit::max(3 << 20))
         .layer(CorsLayer::permissive())
