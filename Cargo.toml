@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-vercel_runtime = { version = "2", features = ["axum"], optional = true }
+vercel_runtime = { version = "2", features = ["axum"] }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["multipart"] }
 tower = { version = "0.5" }
@@ -21,11 +21,8 @@ sqlx = { version = "0.8", features = [
 tower-http = { version = "0.6", features = ["cors"] }
 encoding_rs = "0.8"
 log = "0.4"
-
-[features]
-default = ["serverless"]
-serverless = ["vercel_runtime"]
-server = []
+thiserror = "2"
+const_format = "0.2"
 
 [[bin]]
 name = "api"
@@ -39,7 +36,7 @@ codegen-units = 1
 lto = "fat"
 opt-level = 3
 
-[profile.release-mini]
+[profile.minimalist]
 inherits = "release"
 codegen-units = 1
 lto = "fat"

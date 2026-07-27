@@ -1,75 +1,28 @@
-use sqlx::ConnectOptions;
+use std::env;
 use std::str::FromStr;
+use std::time::Duration;
+
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::{ConnectOptions, PgPool};
 use tokio::sync::OnceCell;
 
-#[cfg(feature = "serverless")]
-pub mod lib {
-    use super::*;
-    use sqlx::{
-        PgPool,
-        postgres::{PgConnectOptions, PgPoolOptions},
-    };
-    use std::time::Duration;
+static DB_POOL: OnceCell<PgPool> = OnceCell::const_new();
 
-    static DB: OnceCell<PgPool> = OnceCell::const_new();
+async fn setup() -> Result<PgPool, sqlx::Error> {
+    let url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
 
-    async fn db_backend() -> Result<PgPool, sqlx::Error> {
-        let db_str = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
+    let options = PgConnectOptions::from_str(&url)?.log_statements(log::LevelFilter::Off);
 
-        let options = PgConnectOptions::from_str(&db_str)?.log_statements(log::LevelFilter::Off);
-
-        PgPoolOptions::new()
-            .max_connections(1)
-            .min_connections(0)
-            .idle_timeout(Duration::from_secs(30))
-            .connect_with(options)
-            .await
-    }
-
-    pub async fn db() -> Result<&'static PgPool, sqlx::Error> {
-        DB.get_or_try_init(db_backend).await
-    }
+    PgPoolOptions::new()
+        .max_connections(1)
+        .min_connections(0)
+        .idle_timeout(Duration::from_secs(30))
+        .acquire_timeout(Duration::from_secs(5))
+        .connect_with(options)
+        .await
 }
 
-#[cfg(feature = "server")]
-pub mod lib {
-    use super::*;
-    use sqlx::{
-        SqlitePool,
-        sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
-    };
-    use std::time::Duration;
-
-    static DB: OnceCell<SqlitePool> = OnceCell::const_new();
-
-    async fn db_backend() -> Result<SqlitePool, sqlx::Error> {
-        let dir = {
-            let mut path = std::env::current_exe()?;
-            path.pop();
-            path.display().to_string()
-        };
-
-        let db_str = std::path::Path::new(format!("sqlite:{dir}").as_str())
-            .join("note.db")
-            .display()
-            .to_string();
-
-        let options = SqliteConnectOptions::from_str(&db_str)?
-            .journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Normal)
-            .create_if_missing(true)
-            .log_statements(log::LevelFilter::Off);
-
-        SqlitePoolOptions::new()
-            .max_connections(1)
-            .min_connections(0)
-            .idle_timeout(Duration::from_secs(30))
-            .connect_with(options)
-            .await
-    }
-
-    pub async fn db() -> Result<&'static SqlitePool, sqlx::Error> {
-        DB.get_or_try_init(db_backend).await
-    }
+pub async fn get() -> Result<&'static PgPool, sqlx::Error> {
+    DB_POOL.get_or_try_init(setup).await
 }
