@@ -7,6 +7,9 @@ use tokio::sync::OnceCell;
 
 static DB_POOL: OnceCell<PgPool> = OnceCell::const_new();
 
+#[derive(Clone)]
+pub struct Postgres;
+
 async fn setup() -> Result<PgPool, Error> {
     let url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
@@ -27,7 +30,6 @@ async fn setup() -> Result<PgPool, Error> {
                 content TEXT
             );
             "#;
-
     sqlx::query(s).execute(&db).await?;
 
     Ok(db)
@@ -37,36 +39,23 @@ async fn get() -> Result<&'static PgPool, Error> {
     DB_POOL.get_or_try_init(setup).await
 }
 
-struct Postgres;
-
-impl crate::Database<Error> for Postgres {
-    fn ping(&self) -> crate::Result<()> {
-        DB_POOL.
-    }
-
-    fn read(&self, id: &str) -> impl Future<Output = Result<Option<String>, Error>> + Send {
-        async move {
-            let db = get().await?;
-            let content = sqlx::query_scalar("SELECT content FROM notes WHERE id = $1")
-                .bind(id)
-                .fetch_optional(db)
-                .await?;
-            Ok(content)
-        }
-    }
-
-    fn write(&self, id: &str, content: &str) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let db = get().await?;
-            sqlx::query(
-                "INSERT INTO notes (id, content) VALUES ($1, $2)
-                 ON CONFLICT(id) DO UPDATE SET content = excluded.content",
-            )
+impl crate::Database for Postgres {
+    async fn read(&self, id: &str) -> crate::Result<String> {
+        let db = get().await?;
+        let s = "SELECT content FROM notes WHERE id = $1";
+        let content = sqlx::query_scalar(s)
             .bind(id)
-            .bind(content)
-            .execute(db)
-            .await?;
-            Ok(())
-        }
+            .fetch_optional(db)
+            .await?
+            .unwrap_or_default();
+        Ok(content)
+    }
+
+    async fn write(&self, id: &str, content: &str) -> crate::Result<()> {
+        let db = get().await?;
+        let s = "INSERT INTO notes (id, content) VALUES ($1, $2)
+                 ON CONFLICT(id) DO UPDATE SET content = excluded.content";
+        sqlx::query(s).bind(id).bind(content).execute(db).await?;
+        Ok(())
     }
 }

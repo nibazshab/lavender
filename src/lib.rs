@@ -5,7 +5,7 @@ use askama::Template;
 use axum::body::Bytes;
 use axum::extract::multipart::{MultipartError, MultipartRejection};
 use axum::extract::rejection::BytesRejection;
-use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Request};
+use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Request, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Router, routing::get};
@@ -132,15 +132,14 @@ struct Note {
     content: String,
 }
 
-trait Database<E>: Send + Sync {
-    fn ping(&self) -> Result<()>;
-    fn read(&self, id: &str)
-    -> impl Future<Output = std::result::Result<Option<String>, E>> + Send;
-    fn write(
-        &self,
-        id: &str,
-        content: &str,
-    ) -> impl Future<Output = std::result::Result<(), E>> + Send;
+trait Database: Send + Sync {
+    fn read(&self, id: &str) -> impl Future<Output = Result<String>> + Send;
+    fn write(&self, id: &str, content: &str) -> impl Future<Output = Result<()>> + Send;
+}
+
+#[derive(Clone)]
+struct Storage<R: Database> {
+    repo: R,
 }
 
 async fn redirect() -> impl IntoResponse {
@@ -148,34 +147,36 @@ async fn redirect() -> impl IntoResponse {
 }
 
 async fn reader(
+    State(storage): State<Storage<impl Database>>,
     Path(id): Path<String>,
     TypedHeader(user_agent): TypedHeader<headers::UserAgent>,
 ) -> Result<impl IntoResponse> {
     let ua = user_agent.as_str().to_lowercase();
     let is_cli = ua.contains("curl") || ua.contains("wget");
     if is_cli {
-        return content(Path(id)).await.map(|r| r.into_response());
+        return content(State(storage), Path(id)).await.map(|r| r.into_response());
     }
 
-    let note = Note::read(&id).await?;
+    let content = storage.repo.read(&id).await?;
+    let note = Note { id, content };
     let chars = note.render()?;
-
     Ok(Html(chars).into_response())
 }
 
-async fn content(Path(id): Path<String>) -> Result<impl IntoResponse> {
-    let note = Note::read(&id).await?;
-
-    Ok((
-        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-        note.content,
-    ))
+async fn content(
+    State(storage): State<Storage<impl Database>>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse> {
+    let content = storage.repo.read(&id).await?;
+    Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], content))
 }
 
-async fn writer(Path(id): Path<String>, Content(content): Content) -> Result<impl IntoResponse> {
-    let note = Note { id, content };
-    note.write().await?;
-
+async fn writer(
+    State(storage): State<Storage<impl Database>>,
+    Path(id): Path<String>,
+    Content(content): Content,
+) -> Result<impl IntoResponse> {
+    storage.repo.write(&id, &content).await?;
     Ok(StatusCode::OK)
 }
 
@@ -212,28 +213,27 @@ async fn favicon() -> impl IntoResponse {
 }
 
 fn rand_string(n: usize) -> String {
-    rng()
-        .sample_iter(&Alphanumeric)
-        .take(n)
-        .map(char::from)
-        .collect()
+    rng().sample_iter(&Alphanumeric).take(n).map(char::from).collect()
 }
 
 async fn router() -> Result<Router> {
-    Note::schema().await?;
+    let storage = Storage {
+        repo: database::Postgres,
+    };
 
-    let endpoints = Router::new()
+    let edp = Router::new()
         .route("/", get(redirect))
         .route("/{id}", get(reader).post(writer).put(writer))
-        .route("/d/{id}", get(content));
+        .route("/d/{id}", get(content))
+        .with_state(storage);
 
-    let resources = Router::new()
+    let res = Router::new()
         .route("/assets/{file}", get(assets))
         .route("/favicon.ico", get(favicon));
 
     let router = Router::new()
-        .merge(endpoints)
-        .merge(resources)
+        .merge(edp)
+        .merge(res)
         .layer(DefaultBodyLimit::max(3 << 20))
         .layer(CorsLayer::permissive());
 
