@@ -17,6 +17,8 @@ use rust_embed::RustEmbed;
 use thiserror::Error;
 use tower_http::cors::CorsLayer;
 
+type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug, Error)]
 enum Error {
     #[error("{0}")]
@@ -45,7 +47,7 @@ impl IntoResponse for Error {
 
             Error::Bytes(rejection) => rejection.into_response(),
             Error::MultipartRejection(rejection) => rejection.into_response(),
-            Error::Multipart(err) => err.into_response(),
+            Error::Multipart(rejection) => rejection.into_response(),
 
             _err @ (Error::Template(_) | Error::Sqlx(_)) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
@@ -57,7 +59,7 @@ impl IntoResponse for Error {
 struct Content(String);
 
 impl Content {
-    async fn from_body<S>(req: Request, state: &S) -> Result<Self, Error>
+    async fn from_body<S>(req: Request, state: &S) -> Result<Self>
     where
         S: Send + Sync,
     {
@@ -76,7 +78,7 @@ impl Content {
         Err(Error::BadRequest("not utf-8/gbk".into()))
     }
 
-    async fn from_multipart<S>(req: Request, state: &S) -> Result<Self, Error>
+    async fn from_multipart<S>(req: Request, state: &S) -> Result<Self>
     where
         S: Send + Sync,
     {
@@ -101,7 +103,7 @@ where
 {
     type Rejection = Error;
 
-    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request(req: Request, state: &S) -> Result<Self> {
         let content_type = req
             .headers()
             .get(header::CONTENT_TYPE)
@@ -131,7 +133,7 @@ struct Note {
 }
 
 impl Note {
-    async fn schema() -> Result<(), sqlx::Error> {
+    async fn schema() -> Result<()> {
         let db = database::get().await?;
 
         let s = r#"
@@ -145,7 +147,7 @@ impl Note {
         Ok(())
     }
 
-    async fn read(id: &str) -> Result<Self, Error> {
+    async fn read(id: &str) -> Result<Self> {
         let db = database::get().await?;
 
         let s = "SELECT content FROM notes WHERE id = $1";
@@ -162,7 +164,7 @@ impl Note {
         })
     }
 
-    async fn write(&self) -> Result<(), Error> {
+    async fn write(&self) -> Result<()> {
         let db = database::get().await?;
 
         let s = r#"
@@ -186,7 +188,7 @@ async fn redirect() -> impl IntoResponse {
 async fn reader(
     Path(id): Path<String>,
     TypedHeader(user_agent): TypedHeader<headers::UserAgent>,
-) -> Result<impl IntoResponse, Error> {
+) -> Result<impl IntoResponse> {
     let ua = user_agent.as_str().to_lowercase();
     let is_cli = ua.contains("curl") || ua.contains("wget");
     if is_cli {
@@ -194,12 +196,12 @@ async fn reader(
     }
 
     let note = Note::read(&id).await?;
-    let txt = note.render()?;
+    let chars = note.render()?;
 
-    Ok(Html(txt).into_response())
+    Ok(Html(chars).into_response())
 }
 
-async fn content(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
+async fn content(Path(id): Path<String>) -> Result<impl IntoResponse> {
     let note = Note::read(&id).await?;
 
     Ok((
@@ -208,10 +210,7 @@ async fn content(Path(id): Path<String>) -> Result<impl IntoResponse, Error> {
     ))
 }
 
-async fn writer(
-    Path(id): Path<String>,
-    Content(content): Content,
-) -> Result<impl IntoResponse, Error> {
+async fn writer(Path(id): Path<String>, Content(content): Content) -> Result<impl IntoResponse> {
     let note = Note { id, content };
     note.write().await?;
 
@@ -258,7 +257,7 @@ fn rand_string(n: usize) -> String {
         .collect()
 }
 
-async fn router() -> Result<Router, Box<dyn std::error::Error>> {
+async fn router() -> Result<Router> {
     Note::schema().await?;
 
     let endpoints = Router::new()
