@@ -132,53 +132,15 @@ struct Note {
     content: String,
 }
 
-impl Note {
-    async fn schema() -> Result<()> {
-        let db = database::get().await?;
-
-        let s = r#"
-            CREATE TABLE IF NOT EXISTS notes (
-                id TEXT PRIMARY KEY,
-                content TEXT
-            );
-            "#;
-
-        sqlx::query(s).execute(db).await?;
-        Ok(())
-    }
-
-    async fn read(id: &str) -> Result<Self> {
-        let db = database::get().await?;
-
-        let s = "SELECT content FROM notes WHERE id = $1";
-
-        let content = sqlx::query_scalar(s)
-            .bind(id)
-            .fetch_optional(db)
-            .await?
-            .unwrap_or_default();
-
-        Ok(Note {
-            id: id.to_string(),
-            content,
-        })
-    }
-
-    async fn write(&self) -> Result<()> {
-        let db = database::get().await?;
-
-        let s = r#"
-            INSERT INTO notes (id, content) VALUES ($1, $2) ON CONFLICT(id) DO
-            UPDATE SET content = excluded.content
-            "#;
-
-        sqlx::query(s)
-            .bind(&self.id)
-            .bind(&self.content)
-            .execute(db)
-            .await?;
-        Ok(())
-    }
+trait Database<E>: Send + Sync {
+    fn ping(&self) -> Result<()>;
+    fn read(&self, id: &str)
+    -> impl Future<Output = std::result::Result<Option<String>, E>> + Send;
+    fn write(
+        &self,
+        id: &str,
+        content: &str,
+    ) -> impl Future<Output = std::result::Result<(), E>> + Send;
 }
 
 async fn redirect() -> impl IntoResponse {
