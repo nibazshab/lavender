@@ -1,4 +1,3 @@
-pub mod app;
 mod database;
 
 use askama::Template;
@@ -14,12 +13,11 @@ use const_format::concatcp;
 use rand::distr::Alphanumeric;
 use rand::{RngExt, rng};
 use rust_embed::RustEmbed;
-use thiserror::Error;
 use tower_http::cors::CorsLayer;
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("{0}")]
     BadRequest(String),
@@ -127,14 +125,9 @@ const CACHE_CONTROL: &str = concatcp!("public, max-age=", MAX_AGE);
 
 #[derive(Debug, Template)]
 #[template(path = "index.html")]
-struct Note {
+struct Webpage {
     id: String,
     content: String,
-}
-
-trait Database: Send + Sync {
-    fn read(&self, id: &str) -> impl Future<Output = Result<String>> + Send;
-    fn write(&self, id: &str, content: &str) -> impl Future<Output = Result<()>> + Send;
 }
 
 #[derive(Clone)]
@@ -142,7 +135,12 @@ struct Storage<R: Database> {
     repo: R,
 }
 
-async fn redirect() -> impl IntoResponse {
+trait Database: Send + Sync {
+    fn read(&self, id: &str) -> impl Future<Output = Result<String>> + Send;
+    fn write(&self, id: &str, content: &str) -> impl Future<Output = Result<()>> + Send;
+}
+
+async fn redirect() -> Redirect {
     Redirect::temporary(&rand_string(4))
 }
 
@@ -158,9 +156,8 @@ async fn reader(
     }
 
     let content = storage.repo.read(&id).await?;
-    let note = Note { id, content };
-    let chars = note.render()?;
-    Ok(Html(chars).into_response())
+    let text = Webpage { id, content }.render()?;
+    Ok(Html(text).into_response())
 }
 
 async fn content(
@@ -180,7 +177,7 @@ async fn writer(
     Ok(StatusCode::OK)
 }
 
-async fn assets(Path(file): Path<String>) -> impl IntoResponse {
+async fn resources(Path(file): Path<String>) -> Response {
     let Some(obj) = Assets::get(&file) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -201,7 +198,7 @@ async fn assets(Path(file): Path<String>) -> impl IntoResponse {
     (headers, bytes).into_response()
 }
 
-async fn favicon() -> impl IntoResponse {
+async fn favicon() -> Response {
     (
         [
             (header::CONTENT_TYPE, "image/x-icon"),
@@ -216,7 +213,7 @@ fn rand_string(n: usize) -> String {
     rng().sample_iter(&Alphanumeric).take(n).map(char::from).collect()
 }
 
-async fn router() -> Result<Router> {
+pub async fn router() -> Router {
     let storage = Storage {
         repo: database::Postgres,
     };
@@ -228,14 +225,12 @@ async fn router() -> Result<Router> {
         .with_state(storage);
 
     let res = Router::new()
-        .route("/assets/{file}", get(assets))
+        .route("/assets/{file}", get(resources))
         .route("/favicon.ico", get(favicon));
 
-    let router = Router::new()
+    Router::new()
         .merge(edp)
         .merge(res)
         .layer(DefaultBodyLimit::max(3 << 20))
-        .layer(CorsLayer::permissive());
-
-    Ok(router)
+        .layer(CorsLayer::permissive())
 }
