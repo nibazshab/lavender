@@ -1,5 +1,5 @@
 #[tokio::main]
-pub async fn main() -> Result<(), vercel_runtime::Error> {
+async fn main() -> Result<(), vercel_runtime::Error> {
     let router = app::router().await;
 
     let app = tower::ServiceBuilder::new()
